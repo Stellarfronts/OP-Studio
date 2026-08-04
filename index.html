@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Typing Checklist Studio</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="app-header">
+
+    <div class="app-brand">
+        OPS Studio
+    </div>
+
+    <div class="header-main">
+        <input id="templateTitle"
+               class="title-input"
+               type="text"
+               placeholder="Title">
+    </div>
+
+    <div class="header-actions">
+<button id="clearBtn" type="button">Clear All</button>
+<button id="themeBtn" type="button">Dark</button>
+<button id="lockBtn" type="button">Lock</button>
+<button id="newTemplateBtn" type="button">New</button>
+<button id="projectsBtn" type="button">Saved Typings</button>
+    </div>
+
+</header>
+
+    <div id="projectsMenu" class="projects-menu"></div>
+
+    <main class="app-shell">
+        <aside class="sidebar results-panel">
+            <div class="sidebar-title-row">
+                <div>
+                    <div id="matchingCount" class="count-pill">
+                        <span id="typesRemaining">0 Types</span>
+                        <span id="typesEliminated">0% Eliminated</span>
+                    </div>
+                    <div class="progress-bar"><span id="progressFill"></span></div>
+                </div>
+            </div>
+            <div class="results-photo-area" aria-label="Person image placeholder">
+                <div class="results-photo-placeholder">Add image</div>
+            </div>
+            <div id="resultsList" class="results-list"></div>
+        </aside>
+
+        <section class="center-panel">
+            <div class="center-top-stats">
+                <div id="matchingCount" class="count-pill">
+                    <span id="typesRemaining">0 Types</span>
+                    <span id="typesEliminated">0% Eliminated</span>
+                </div>
+                <div class="progress-bar"><span id="progressFill"></span></div>
+                <div id="typingPreview" class="typing-preview">XX Xx/Xx XX/X(X) #x</div>
+            </div>
+            <div id="coinContainer" class="coin-container"></div>
+        </section>
+
+        <aside class="sidebar notes-panel">
+            <h2>Notes</h2>
+            <textarea id="notesArea" placeholder="Type your notes here..."></textarea>
+        </aside>
+    </main>
+
+    <script src="js/script.js"></script>
+</body>
+</html>
