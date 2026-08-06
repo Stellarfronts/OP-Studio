@@ -10,7 +10,7 @@
 <header class="app-header">
 
     <div class="app-brand">
-        OPS Studio
+        OP Studio
     </div>
 
     <div class="header-main">
@@ -24,27 +24,56 @@
 <button id="clearBtn" type="button">Clear All</button>
 <button id="themeBtn" type="button">Dark</button>
 <button id="lockBtn" type="button">Lock</button>
+<button id="databaseBtn" type="button">Database</button>
+<button id="publishBtn" type="button">Publish</button>
 <button id="newTemplateBtn" type="button">New</button>
 <button id="projectsBtn" type="button">Saved Typings</button>
+<button id="accountBtn" type="button">Account</button>
     </div>
 
 </header>
 
     <div id="projectsMenu" class="projects-menu"></div>
+<div id="accountMenu" class="account-menu">
+    <div><strong>Account</strong></div>
+
+    <input id="accountEmailInput" type="email" placeholder="Email address">
+
+<div class="password-wrapper">
+    <input id="accountPasswordInput" 
+           type="password" 
+           placeholder="Password">
+
+    <button id="showPasswordBtn" type="button">👁</button>
+</div>
+
+    <button id="createAccountBtn" type="button">
+        Create Account
+    </button>
+
+    <button id="loginAccountBtn" type="button">
+        Login
+    </button>
+    
+<button id="googleLoginBtn" type="button">
+    Continue with Google
+</button>
+
+    <button id="logoutAccountBtn" type="button">
+        Logout
+    </button>
+
+    <div id="accountStatus" class="status"></div>
+</div>
 
     <main class="app-shell">
         <aside class="sidebar results-panel">
-            <div class="sidebar-title-row">
-                <div>
-                    <div id="matchingCount" class="count-pill">
-                        <span id="typesRemaining">0 Types</span>
-                        <span id="typesEliminated">0% Eliminated</span>
-                    </div>
-                    <div class="progress-bar"><span id="progressFill"></span></div>
-                </div>
-            </div>
-            <div class="results-photo-area" aria-label="Person image placeholder">
-                <div class="results-photo-placeholder">Add image</div>
+            <div class="sidebar-title-row"></div>
+            <div id="imageUploadArea" class="results-photo-area" aria-label="Person image placeholder">
+                <input id="imageFileInput" type="file" accept="image/*" multiple hidden>
+                <div id="imagePlaceholder" class="results-photo-placeholder">Add image</div>
+                <div id="imagePreviewContainer" class="image-preview-container"></div>
+                <button id="addImageBtn" class="add-image-btn" type="button">＋ Add image</button>
             </div>
             <div id="resultsList" class="results-list"></div>
         </aside>
@@ -62,10 +91,17 @@
         </section>
 
         <aside class="sidebar notes-panel">
-            <h2>Notes</h2>
+            <div class="notes-header">
+                <h2>Notes</h2>
+                <button id="bulletBtn" class="notes-bullet-btn" type="button">•</button>
+            </div>
             <textarea id="notesArea" placeholder="Type your notes here..."></textarea>
         </aside>
     </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script src="js/supabase.js"></script>
 
     <script src="js/script.js"></script>
 </body>

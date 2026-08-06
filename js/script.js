@@ -1,4 +1,4 @@
-console.log("OPS Studio loaded!");
+console.log("OP Studio loaded!");
 
 const DEFAULT_COIN_DEFS = [
     { id: "od", label: "O / D", options: [{ value: "O", label: "O" }, { value: "D", label: "D" }] },
@@ -93,6 +93,60 @@ function normalizeCoins(coins = DEFAULT_COIN_DEFS) {
     });
 }
 
+function getSelectionValueFromSlider(coin, sliderValue) {
+    const value = Number(sliderValue);
+    if (value <= 0) {
+        return coin.options[0].value;
+    }
+    if (value === 1) {
+        return "__mid_left__";
+    }
+    if (value === 2) {
+        return "__mid_center__";
+    }
+    if (value === 3) {
+        return "__mid_right__";
+    }
+    if (value >= 4) {
+        return coin.options[1].value;
+    }
+    return coin.options[1].value;
+}
+
+function getSliderValueFromSelection(coin, selectedValue) {
+    if (selectedValue === coin.options[0].value) {
+        return 0;
+    }
+    if (selectedValue === "__mid_left__") {
+        return 1;
+    }
+    if (selectedValue === "__mid_center__") {
+        return 2;
+    }
+    if (selectedValue === "__mid_right__") {
+        return 3;
+    }
+    if (selectedValue === coin.options[1].value) {
+        return 4;
+    }
+    return 2;
+}
+
+function setTemplateSelection(activeTemplate, coin, selectedValue) {
+    if (!activeTemplate) {
+        return;
+    }
+
+    if (selectedValue === undefined) {
+        delete activeTemplate.selections[coin.id];
+    } else {
+        activeTemplate.selections[coin.id] = selectedValue;
+    }
+
+    activeTemplate.sliderStates = activeTemplate.sliderStates || {};
+    activeTemplate.sliderStates[coin.id] = getSliderValueFromSelection(coin, selectedValue);
+}
+
 function normalizeTemplate(template) {
     ensureFolders();
 
@@ -101,8 +155,14 @@ function normalizeTemplate(template) {
 
     coins.forEach(coin => {
         const selectedValue = template?.selections?.[coin.id];
-        if (selectedValue && coin.options.some(option => option.value === selectedValue)) {
+        const sliderState = template?.sliderStates?.[coin.id];
+        const isValidSelection = coin.options.some(option => option.value === selectedValue) ||
+            (coin.options.length === 2 && ["__mid_left__", "__mid_center__", "__mid_right__"].includes(selectedValue));
+
+        if (selectedValue && isValidSelection) {
             selections[coin.id] = selectedValue;
+        } else if (coin.options.length === 2 && Number.isFinite(sliderState)) {
+            selections[coin.id] = getSelectionValueFromSlider(coin, sliderState);
         }
     });
 
@@ -116,7 +176,20 @@ function normalizeTemplate(template) {
         folderId,
         folder: getFolderTitle(folderId),
         coins,
-        selections
+        selections,
+        saviorState: template?.saviorState || "",
+        demonState: template?.demonState || "",
+        images: Array.isArray(template?.images)
+            ? template.images.map(image => ({
+                src: image?.src || "",
+                size: Number.isFinite(Number(image?.size)) ? Number(image.size) : 120,
+                height: Number.isFinite(Number(image?.height)) ? Number(image.height) : 180,
+                aspectRatio: Number.isFinite(Number(image?.aspectRatio)) && Number(image?.aspectRatio) > 0
+                    ? Number(image.aspectRatio)
+                    : ((Number.isFinite(Number(image?.height)) ? Number(image.height) : 180) /
+                        Math.max(1, (Number.isFinite(Number(image?.size)) ? Number(image.size) : 120)))
+            })).filter(image => image.src)
+            : []
     };
 }
 
@@ -131,6 +204,10 @@ function createTemplate() {
         folder: getFolderTitle(folderId),
         notes: "",
         selections: {},
+        sliderStates: {},
+        saviorState: sourceTemplate?.saviorState || "",
+        demonState: sourceTemplate?.demonState || "",
+        images: [],
         coins: normalizeCoins(sourceTemplate ? sourceTemplate.coins : DEFAULT_COIN_DEFS)
     };
 
@@ -304,13 +381,13 @@ function filterTypesBySelections(types, activeSelections = {}) {
         if (!directMatches) return false;
 
         if (special) {
-            const axis = buildAxisSegment(type.selections.oiOe, type.selections.diDe, special);
+            const axis = buildAxisSegment(type.selections.cb, type.selections.sp, special);
             const topPair = axis.split("/")[0].split("");
             const conflictMap = {
-                "(P)": ["S"],
-                "(S)": ["P"],
-                "(C)": ["B"],
-                "(B)": ["C"]
+                "(P)": ["P"],
+                "(S)": ["S"],
+                "(C)": ["C"],
+                "(B)": ["B"]
             };
             const blocked = conflictMap[special] || [];
             if (blocked.some(letter => topPair.includes(letter))) {
@@ -353,21 +430,69 @@ function generateTypeLibrary() {
 function buildTypeLabel(selections) {
     const firstPair = buildFirstPair(selections.od, selections.fSmS, selections.fDeMDe);
     const styleSegment = buildStyleSegment(selections.ft, selections.diDe, selections.ns, selections.oiOe, selections.od);
-    const axisSegment = buildAxisSegment(selections.oiOe, selections.diDe, selections.special);
+    const axisSegment = buildAxisSegment(selections.cb, selections.sp, selections.special);
     const numberCode = buildNumberCode(selections.numOneFour, selections.numTwoThree);
     if (!firstPair || !styleSegment || !axisSegment || !numberCode) return "";
     return `${firstPair} ${styleSegment} ${axisSegment} ${numberCode}`.trim();
 }
 
 function buildSavedTypingPreviewLabel(selections) {
-    const firstPair = buildFirstPair(selections.od, selections.fSmS, selections.fDeMDe);
-    const styleSegment = buildStyleSegment(selections.ft, selections.diDe, selections.ns, selections.oiOe, selections.od);
-    const axisSegment = buildAxisSegment(selections.oiOe, selections.diDe, selections.special);
-    const numberCode = buildNumberCode(selections.numOneFour, selections.numTwoThree);
-    if (!firstPair || !styleSegment || !axisSegment || !numberCode) {
-        return "XX Xx/Xx XX/X(X) #x";
+    const firstPair = buildPreviewFirstPair(selections.od, selections.fSmS, selections.fDeMDe);
+    const styleSegment = buildPreviewStyleSegment(selections.ft, selections.diDe, selections.ns, selections.oiOe, selections.od);
+    const axisSegment = buildPreviewAxisSegment(selections.cb, selections.sp, selections.special);
+    const numberCode = buildPreviewNumberCode(selections.numOneFour, selections.numTwoThree);
+    return `${firstPair || "XX"} ${styleSegment || "Xx/Xx"} ${axisSegment || "XX/X(X)"} ${numberCode || "#X"}`.trim();
+}
+
+function buildPreviewFirstPair(od, fSmS, fDeMDe) {
+    const leftValue = fSmS ? (fSmS === "mS" ? "M" : "F") : "X";
+    const rightValue = fDeMDe ? (fDeMDe === "mDe" ? "M" : "F") : "X";
+    if (od === "D") {
+        return `${rightValue}${leftValue}`;
     }
-    return buildTypeLabel(selections);
+    return `${leftValue}${rightValue}`;
+}
+
+function buildPreviewStyleSegment(ft, diDe, ns, oiOe, od) {
+    if (!ft || !diDe || !ns || !oiOe || !od) {
+        return "Xx/Xx";
+    }
+
+    const firstPart = `${ft === "F" ? "F" : "T"}${diDe === "Di" ? "i" : "e"}`;
+    const secondPart = (oiOe === "Oe"
+        ? (ns === "N" ? "Ne" : "Se")
+        : (oiOe === "Oi" ? (ns === "N" ? "Ni" : "Si") : "Xx"));
+    const leftPart = od === "O" ? secondPart : firstPart;
+    const rightPart = od === "O" ? firstPart : secondPart;
+    return `${leftPart}/${rightPart}`;
+}
+
+function normalizeSpecialLetter(special) {
+    return (special || "").replace(/[()]/g, "");
+}
+
+function buildPreviewAxisSegment(cb, sp, special) {
+    const specialLetter = normalizeSpecialLetter(special);
+    if (!cb || !sp || !specialLetter) {
+        return "XX/X(X)";
+    }
+
+    if (!['C', 'B'].includes(cb) || !['S', 'P'].includes(sp)) {
+        return "XX/X(X)";
+    }
+
+    const oppositeSp = sp === "S" ? "P" : "S";
+    return `${cb}${sp}/${oppositeSp}(${specialLetter})`;
+}
+
+function buildPreviewNumberCode(oneFour, twoThree) {
+    if (!oneFour && !twoThree) {
+        return "#X";
+    }
+    if (oneFour && twoThree) {
+        return buildNumberCode(oneFour, twoThree);
+    }
+    return oneFour || twoThree || "#X";
 }
 
 function buildFirstPair(od, fSmS, fDeMDe) {
@@ -389,21 +514,13 @@ function buildStyleSegment(ft, diDe, ns, oiOe = "Oi", od = "O") {
     return od === "D" ? `${second}/${base}` : `${base}/${second}`;
 }
 
-function buildAxisSegment(oiOe, diDe, special) {
-    if (!oiOe || !diDe || !special) return "";
-    const pairMap = {
-        OiDi: ["P", "C"],
-        OiDe: ["B", "S"],
-        OeDi: ["C", "P"],
-        OeDe: ["P", "C"]
-    };
-    const firstPair = pairMap[`${oiOe}${diDe}`] || ["P", "C"];
-    const specialLetter = (special || "(S)").replace(/[()]/g, "");
-    const remainingLetters = ["C", "P", "B", "S"].filter(letter => !firstPair.includes(letter));
-    const chosenSpecial = remainingLetters.includes(specialLetter) ? specialLetter : remainingLetters[0];
-    const thirdLetter = remainingLetters.find(letter => letter !== chosenSpecial) || remainingLetters[0];
-    const axisBody = `${chosenSpecial}(${thirdLetter})`;
-    return `${firstPair.join("")}/${axisBody}`;
+function buildAxisSegment(cb, sp, special) {
+    const specialLetter = normalizeSpecialLetter(special);
+    if (!cb || !sp || !specialLetter) return "";
+    if (!['C', 'B'].includes(cb) || !['S', 'P'].includes(sp)) return "";
+
+    const oppositeSp = sp === "S" ? "P" : "S";
+    return `${cb}${sp}/${oppositeSp}(${specialLetter})`;
 }
 
 function buildNumberCode(oneFour, twoThree) {
@@ -607,6 +724,208 @@ function renderProjectsMenu() {
     });
 }
 
+function renderImageGallery(activeTemplate) {
+    const imageUploadArea = document.getElementById("imageUploadArea");
+    const imagePlaceholder = document.getElementById("imagePlaceholder");
+    const imagePreviewContainer = document.getElementById("imagePreviewContainer");
+    const addImageBtn = document.getElementById("addImageBtn");
+    const notesPanel = document.querySelector(".notes-panel");
+    const notesArea = document.getElementById("notesArea");
+
+    if (!imageUploadArea || !imagePlaceholder || !imagePreviewContainer) {
+        return;
+    }
+
+    imagePreviewContainer.innerHTML = "";
+    const images = Array.isArray(activeTemplate?.images) ? activeTemplate.images : [];
+
+    if (!images.length) {
+        imagePlaceholder.style.display = "none";
+        imageUploadArea.classList.remove("has-images");
+        imageUploadArea.classList.add("no-images");
+        notesPanel?.classList.add("no-images");
+        if (addImageBtn) {
+            addImageBtn.textContent = "＋";
+            addImageBtn.setAttribute("aria-label", "Add image");
+            addImageBtn.title = "Add image";
+        }
+        return;
+    }
+
+    imagePlaceholder.style.display = "none";
+    imageUploadArea.classList.add("has-images");
+    imageUploadArea.classList.remove("no-images");
+    notesPanel?.classList.remove("no-images");
+    if (addImageBtn) {
+        addImageBtn.textContent = "＋";
+        addImageBtn.setAttribute("aria-label", "Add image");
+        addImageBtn.title = "Add image";
+    }
+
+    images.forEach((image, index) => {
+        const card = document.createElement("div");
+        card.className = "image-preview-card";
+        card.dataset.imageIndex = String(index);
+
+        const notesMaxWidth = Math.max(140, notesArea?.clientWidth || 140);
+        const areaMaxWidth = Math.max(140, (imageUploadArea.clientWidth || 0) - 2);
+        const maxCardWidth = Math.max(140, Math.min(areaMaxWidth, notesMaxWidth));
+        const maxCardHeight = Math.max(160, (imageUploadArea.clientHeight || 0) - 24);
+
+        const img = document.createElement("img");
+        img.className = "image-preview";
+        img.src = image.src;
+        img.alt = `Image ${index + 1}`;
+        const savedWidth = Number(image.size) || 220;
+        const savedHeight = Number(image.height) || 180;
+        let baseRatio = Number(image.aspectRatio) || (savedHeight / Math.max(1, savedWidth));
+        if (!Number.isFinite(baseRatio) || baseRatio <= 0) {
+            baseRatio = 180 / 220;
+        }
+
+        let baseWidth = Math.max(140, Math.min(maxCardWidth, savedWidth));
+        let baseHeight = baseWidth * baseRatio;
+        if (baseHeight > maxCardHeight) {
+            baseHeight = maxCardHeight;
+            baseWidth = Math.max(140, Math.min(maxCardWidth, baseHeight / baseRatio));
+        }
+        card.style.width = `${baseWidth}px`;
+        img.style.width = "100%";
+        img.style.height = `${baseHeight}px`;
+
+        const resizeHandle = document.createElement("div");
+        resizeHandle.className = "image-resize-handle";
+        resizeHandle.textContent = "↘";
+
+        let isDragging = false;
+        let isResizing = false;
+        let offsetY = 0;
+        let lastPointerX = 0;
+        let lastPointerY = 0;
+
+        const setPointer = (x, y) => {
+            lastPointerX = x;
+            lastPointerY = y;
+        };
+
+        const maybeSwapByDropPosition = () => {
+            const dropTarget = document.elementFromPoint(lastPointerX, lastPointerY)?.closest(".image-preview-card");
+            if (!dropTarget || dropTarget === card) {
+                return false;
+            }
+
+            const targetIndex = Number(dropTarget.dataset.imageIndex);
+            if (!Number.isInteger(targetIndex) || targetIndex < 0 || targetIndex >= activeTemplate.images.length || targetIndex === index) {
+                return false;
+            }
+
+            const temp = activeTemplate.images[index];
+            activeTemplate.images[index] = activeTemplate.images[targetIndex];
+            activeTemplate.images[targetIndex] = temp;
+            saveTemplates();
+            render();
+            return true;
+        };
+
+        const startDrag = (event) => {
+            if (isResizing) return;
+            isDragging = true;
+            setPointer(event.clientX, event.clientY);
+            const rect = card.getBoundingClientRect();
+            offsetY = event.clientY - rect.top;
+            card.style.position = "relative";
+            card.style.zIndex = "10";
+            card.style.left = "0px";
+        };
+
+        const onMove = (event) => {
+            if (!isDragging && !isResizing) return;
+            setPointer(event.clientX, event.clientY);
+            if (isResizing) {
+                const rect = card.getBoundingClientRect();
+                let nextWidth = Math.min(maxCardWidth, Math.max(140, event.clientX - rect.left + 10));
+                let nextHeight = nextWidth * baseRatio;
+                if (nextHeight > maxCardHeight) {
+                    nextHeight = maxCardHeight;
+                    nextWidth = Math.max(140, Math.min(maxCardWidth, nextHeight / baseRatio));
+                }
+                card.style.width = `${nextWidth}px`;
+                img.style.height = `${nextHeight}px`;
+                activeTemplate.images[index].size = nextWidth;
+                activeTemplate.images[index].height = nextHeight;
+                activeTemplate.images[index].aspectRatio = baseRatio;
+                saveTemplates();
+                return;
+            }
+            card.style.top = `${event.clientY - offsetY}px`;
+            card.style.left = "0px";
+        };
+
+        const endDrag = () => {
+            const wasDragging = isDragging;
+            isDragging = false;
+            isResizing = false;
+            if (wasDragging && maybeSwapByDropPosition()) {
+                return;
+            }
+            card.style.position = "";
+            card.style.top = "";
+            card.style.left = "";
+            card.style.zIndex = "";
+        };
+
+        card.addEventListener("mousedown", startDrag);
+        resizeHandle.addEventListener("mousedown", (event) => {
+            event.stopPropagation();
+            isResizing = true;
+        });
+        window.addEventListener("mousemove", onMove);
+        window.addEventListener("mouseup", endDrag);
+        card.addEventListener("touchstart", (event) => {
+            const touch = event.touches[0];
+            startDrag(touch);
+        }, { passive: true });
+        window.addEventListener("touchmove", (event) => {
+            if (!isDragging && !isResizing) return;
+            const touch = event.touches[0];
+            setPointer(touch.clientX, touch.clientY);
+            if (isResizing) {
+                const rect = card.getBoundingClientRect();
+                let nextWidth = Math.min(maxCardWidth, Math.max(140, touch.clientX - rect.left + 10));
+                let nextHeight = nextWidth * baseRatio;
+                if (nextHeight > maxCardHeight) {
+                    nextHeight = maxCardHeight;
+                    nextWidth = Math.max(140, Math.min(maxCardWidth, nextHeight / baseRatio));
+                }
+                card.style.width = `${nextWidth}px`;
+                img.style.height = `${nextHeight}px`;
+                activeTemplate.images[index].size = nextWidth;
+                activeTemplate.images[index].height = nextHeight;
+                activeTemplate.images[index].aspectRatio = baseRatio;
+                saveTemplates();
+                return;
+            }
+            card.style.left = "0px";
+            card.style.top = `${touch.clientY - offsetY}px`;
+        }, { passive: true });
+        window.addEventListener("touchend", endDrag);
+
+        card.addEventListener("contextmenu", (event) => {
+            event.preventDefault();
+            const shouldDelete = window.confirm("Delete this image?");
+            if (shouldDelete) {
+                activeTemplate.images.splice(index, 1);
+                saveTemplates();
+                render();
+            }
+        });
+
+        card.appendChild(img);
+        card.appendChild(resizeHandle);
+        imagePreviewContainer.appendChild(card);
+    });
+}
+
 function render() {
     const container = document.getElementById("coinContainer");
     const notesArea = document.getElementById("notesArea");
@@ -650,20 +969,33 @@ function render() {
 
             const pairRow = document.createElement("div");
             pairRow.className = "coin-option-row";
+            let suppressClick = false;
+            let isDragSelecting = false;
+            let hasDragMoved = false;
+            const pairCards = [];
 
             coin.options.forEach((option, index) => {
                 const card = document.createElement("div");
-                card.className = "option-card";
+                const sliderState = activeTemplate.sliderStates?.[coin.id];
+                const isLeftCard = index === 0;
+                const isRightCard = index === 1;
+                const isHalfSelected = typeof sliderState === "number" && ((isLeftCard && sliderState === 1) || (isRightCard && sliderState === 3));
+                const isFullSelected = typeof sliderState === "number" && ((isLeftCard && sliderState === 0) || (isRightCard && sliderState >= 4));
+                const halfDirectionClass = isHalfSelected && isRightCard && sliderState === 3 ? " reverse" : "";
+                const isSelected = selectedValue === option.value;
+                card.className = "option-card" + (isSelected ? " selected" : "") + (isHalfSelected ? " slider-half-selected" : "") + (isFullSelected ? " slider-full-selected" : "") + halfDirectionClass;
+                pairCards.push(card);
 
                 const button = document.createElement("button");
-                button.className = "option-button" + (selectedValue === option.value ? " selected" : "");
+                button.className = "option-button";
                 button.textContent = option.label;
                 button.onclick = () => {
-                    if (activeTemplate.selections[coin.id] === option.value) {
-                        delete activeTemplate.selections[coin.id];
-                    } else {
-                        activeTemplate.selections[coin.id] = option.value;
+                    if (suppressClick) {
+                        suppressClick = false;
+                        return;
                     }
+                    const nextValue = activeTemplate.selections[coin.id] === option.value ? undefined : option.value;
+                    setTemplateSelection(activeTemplate, coin, nextValue);
                     saveTemplates();
                     render();
                 };
@@ -680,6 +1012,14 @@ function render() {
                     input.className = "option-definition right-definition";
                 }
                 input.addEventListener("click", (e) => {
+                    if (editingLocked) {
+                        e.preventDefault();
+                        const nextValue = activeTemplate.selections[coin.id] === option.value ? undefined : option.value;
+                        setTemplateSelection(activeTemplate, coin, nextValue);
+                        saveTemplates();
+                        render();
+                        return;
+                    }
                     e.stopPropagation();
                 });
                 input.placeholder = `Define ${option.label}`;
@@ -689,6 +1029,17 @@ function render() {
                     option.definition = input.value;
                     saveTemplates();
                 });
+
+                card.onclick = () => {
+                    if (suppressClick) {
+                        suppressClick = false;
+                        return;
+                    }
+                    const nextValue = activeTemplate.selections[coin.id] === option.value ? undefined : option.value;
+                    setTemplateSelection(activeTemplate, coin, nextValue);
+                    saveTemplates();
+                    render();
+                };
 
                 if (index === 0) {
                     card.appendChild(input);
@@ -711,10 +1062,15 @@ function render() {
             slider.max = "4";
             slider.step = "1";
             let initialSliderValue = "2";
-            if (selectedValue === coin.options[0].value) {
+            const sliderState = activeTemplate.sliderStates?.[coin.id];
+            if (typeof sliderState === "number") {
+                initialSliderValue = String(sliderState);
+            } else if (selectedValue === coin.options[0].value) {
                 initialSliderValue = "0";
             } else if (selectedValue === "__mid_left__") {
                 initialSliderValue = "1";
+            } else if (selectedValue === "__mid_center__") {
+                initialSliderValue = "2";
             } else if (selectedValue === "__mid_right__") {
                 initialSliderValue = "3";
             } else if (selectedValue === coin.options[1].value) {
@@ -723,75 +1079,113 @@ function render() {
             slider.value = initialSliderValue;
             slider.disabled = editingLocked;
             slider.addEventListener("input", () => {
-                const value = Number(slider.value);
-                if (value <= 0) {
-                    activeTemplate.selections[coin.id] = coin.options[0].value;
-                } else if (value === 1) {
-                    activeTemplate.selections[coin.id] = "__mid_left__";
-                } else if (value === 2) {
-                    delete activeTemplate.selections[coin.id];
-                } else if (value === 3) {
-                    activeTemplate.selections[coin.id] = "__mid_right__";
-                } else if (value >= 4) {
-                    activeTemplate.selections[coin.id] = coin.options[1].value;
-                }
+                const nextValue = getSelectionValueFromSlider(coin, slider.value);
+                setTemplateSelection(activeTemplate, coin, nextValue);
                 saveTemplates();
             });
             slider.addEventListener("change", () => {
                 render();
             });
 
+            const applyPairVisualState = (stateValue) => {
+                const state = Math.max(0, Math.min(4, Number(stateValue) || 2));
+                pairCards.forEach((card, index) => {
+                    const isLeftCard = index === 0;
+                    const isRightCard = index === 1;
+                    const isHalfSelected = (isLeftCard && state === 1) || (isRightCard && state === 3);
+                    const isFullSelected = (isLeftCard && state === 0) || (isRightCard && state === 4);
+
+                    card.className = "option-card";
+                    if (isFullSelected) {
+                        card.classList.add("selected", "slider-full-selected");
+                    } else if (isHalfSelected) {
+                        card.classList.add("slider-half-selected");
+                        if (isRightCard && state === 3) {
+                            card.classList.add("reverse");
+                        }
+                    }
+                });
+            };
+
+            const getNearestMarker = (clientX) => {
+                const rect = pairRow.getBoundingClientRect();
+                if (!rect.width) {
+                    return Number(slider.value) || 2;
+                }
+                const ratio = (clientX - rect.left) / rect.width;
+                const marker = Math.round(ratio * 4);
+                return Math.max(0, Math.min(4, marker));
+            };
+
+            const finalizeDragSelection = (marker) => {
+                isDragSelecting = false;
+                slider.value = String(marker);
+                const nextValue = getSelectionValueFromSlider(coin, marker);
+                setTemplateSelection(activeTemplate, coin, nextValue);
+                saveTemplates();
+                // Always suppress the trailing click fired after pointerup so selection does not get toggled off.
+                suppressClick = true;
+                render();
+            };
+
+            pairRow.addEventListener("pointerdown", (event) => {
+                if (event.button !== 0) return;
+                if (!editingLocked && event.target.closest(".option-definition")) return;
+
+                isDragSelecting = true;
+                hasDragMoved = false;
+                pairRow.setPointerCapture(event.pointerId);
+                const marker = getNearestMarker(event.clientX);
+                slider.value = String(marker);
+                applyPairVisualState(marker);
+                event.preventDefault();
+            });
+
+            pairRow.addEventListener("pointermove", (event) => {
+                if (!isDragSelecting) return;
+                hasDragMoved = true;
+                const marker = getNearestMarker(event.clientX);
+                slider.value = String(marker);
+                applyPairVisualState(marker);
+            });
+
+            pairRow.addEventListener("pointerup", (event) => {
+                if (!isDragSelecting) return;
+                const marker = getNearestMarker(event.clientX);
+                finalizeDragSelection(marker);
+            });
+
+            pairRow.addEventListener("pointercancel", () => {
+                if (!isDragSelecting) return;
+                finalizeDragSelection(Number(slider.value) || 2);
+            });
+
             pairSelector.appendChild(slider);
             pair.appendChild(pairRow);
-            pair.appendChild(pairSelector);
             optionGrid.appendChild(pair);
         } else {
-            coin.options.forEach((option, index) => {
+            coin.options.forEach((option) => {
                 const card = document.createElement("div");
-                card.className = "option-card";
+                const isSelected = selectedValue === option.value;
+                card.className = "option-card" + (isSelected ? " selected" : "");
 
                 const button = document.createElement("button");
-                button.className = "option-button" + (selectedValue === option.value ? " selected" : "");
+                button.className = "option-button";
                 button.textContent = option.label;
                 button.onclick = () => {
-                    if (activeTemplate.selections[coin.id] === option.value) {
-                        delete activeTemplate.selections[coin.id];
-                    } else {
-                        activeTemplate.selections[coin.id] = option.value;
-                    }
+                    const nextValue = activeTemplate.selections[coin.id] === option.value ? undefined : option.value;
+                    setTemplateSelection(activeTemplate, coin, nextValue);
                     saveTemplates();
                     render();
                 };
 
-                const input = document.createElement("input");
-                const leftSideValues = ["O", "Di", "Oi", "N", "F", "fDe", "fS", "#1", "#2", "C", "S"];
-                if (index === 0) {
-                    input.className = "option-definition left-definition";
-                    if (leftSideValues.includes(option.value)) {
-                        input.style.textAlign = "right";
-                        input.style.direction = "rtl";
-                    }
-                } else {
-                    input.className = "option-definition right-definition";
-                }
-                input.addEventListener("click", (e) => {
-                    e.stopPropagation();
-                });
-                input.placeholder = `Define ${option.label}`;
-                input.value = option.definition || "";
-                input.disabled = editingLocked;
-                input.addEventListener("input", () => {
-                    option.definition = input.value;
+                card.onclick = () => {
+                    const nextValue = activeTemplate.selections[coin.id] === option.value ? undefined : option.value;
+                    setTemplateSelection(activeTemplate, coin, nextValue);
                     saveTemplates();
-                });
-
-                if (index === 0) {
-                    card.appendChild(input);
-                    card.appendChild(button);
-                } else {
-                    card.appendChild(button);
-                    card.appendChild(input);
-                }
+                    render();
+                };
+                card.appendChild(button);
                 optionGrid.appendChild(card);
             });
         }
@@ -799,6 +1193,71 @@ function render() {
         row.appendChild(optionGrid);
         container.appendChild(row);
     });
+
+    const stateDefinitions = document.createElement("div");
+    stateDefinitions.className = "state-definition-row";
+
+    const saviorCard = document.createElement("div");
+    saviorCard.className = "state-definition-card";
+    const saviorLabel = document.createElement("div");
+    saviorLabel.className = "state-definition-label";
+    saviorLabel.textContent = "Savior state";
+    const saviorInput = document.createElement("textarea");
+    saviorInput.className = "state-definition-input";
+    saviorInput.placeholder = "Define savior state";
+    saviorInput.value = activeTemplate.saviorState || "";
+    saviorInput.disabled = editingLocked;
+    saviorInput.addEventListener("input", () => {
+        activeTemplate.saviorState = saviorInput.value;
+        saveTemplates();
+    });
+    saviorInput.addEventListener("mousedown", (event) => {
+        event.stopPropagation();
+        saviorInput.focus();
+    });
+    saviorInput.addEventListener("touchstart", (event) => {
+        event.stopPropagation();
+        saviorInput.focus();
+    });
+    saviorInput.addEventListener("focus", () => {
+        saviorInput.setSelectionRange(saviorInput.value.length, saviorInput.value.length);
+    });
+    saviorCard.appendChild(saviorLabel);
+    saviorCard.appendChild(saviorInput);
+
+    const demonCard = document.createElement("div");
+    demonCard.className = "state-definition-card";
+    const demonLabel = document.createElement("div");
+    demonLabel.className = "state-definition-label";
+    demonLabel.textContent = "Demon state";
+    const demonInput = document.createElement("textarea");
+    demonInput.className = "state-definition-input";
+    demonInput.placeholder = "Define demon state";
+    demonInput.value = activeTemplate.demonState || "";
+    demonInput.disabled = editingLocked;
+    demonInput.addEventListener("input", () => {
+        activeTemplate.demonState = demonInput.value;
+        saveTemplates();
+    });
+    demonInput.addEventListener("mousedown", (event) => {
+        event.stopPropagation();
+        demonInput.focus();
+    });
+    demonInput.addEventListener("touchstart", (event) => {
+        event.stopPropagation();
+        demonInput.focus();
+    });
+    demonInput.addEventListener("focus", () => {
+        demonInput.setSelectionRange(demonInput.value.length, demonInput.value.length);
+    });
+    demonCard.appendChild(demonLabel);
+    demonCard.appendChild(demonInput);
+
+    stateDefinitions.appendChild(saviorCard);
+    stateDefinitions.appendChild(demonCard);
+    container.appendChild(stateDefinitions);
+
+    renderImageGallery(activeTemplate);
 
     const filtered = filterTypesBySelections(typeLibrary, activeTemplate.selections);
     const totalPossible = typeLibrary.length || 1;
@@ -830,11 +1289,23 @@ function render() {
 function wireEvents() {
     const templateTitleInput = document.getElementById("templateTitle");
     const notesArea = document.getElementById("notesArea");
+    const bulletBtn = document.getElementById("bulletBtn");
     const newTemplateBtn = document.getElementById("newTemplateBtn");
     const clearBtn = document.getElementById("clearBtn");
-    const projectsBtn = document.getElementById("projectsBtn");
-    const lockBtn = document.getElementById("lockBtn");
-    const themeBtn = document.getElementById("themeBtn");
+const projectsBtn = document.getElementById("projectsBtn");
+const lockBtn = document.getElementById("lockBtn");
+const themeBtn = document.getElementById("themeBtn");
+const databaseBtn = document.getElementById("databaseBtn");
+const accountBtn = document.getElementById("accountBtn");
+const publishBtn = document.getElementById("publishBtn");
+
+const createAccountBtn = document.getElementById("createAccountBtn");
+const loginAccountBtn = document.getElementById("loginAccountBtn");
+const logoutAccountBtn = document.getElementById("logoutAccountBtn");
+
+const accountEmailInput = document.getElementById("accountEmailInput");
+const accountPasswordInput = document.getElementById("accountPasswordInput");
+const accountStatus = document.getElementById("accountStatus");
 
     templateTitleInput.addEventListener("input", () => {
         const activeTemplate = getActiveTemplate();
@@ -845,10 +1316,72 @@ function wireEvents() {
         }
     });
 
+    accountBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+
+    const accountMenu = document.getElementById("accountMenu");
+
+    if (accountMenu) {
+        accountMenu.classList.toggle("open");
+    }
+});
+
     notesArea.addEventListener("input", () => {
         const activeTemplate = getActiveTemplate();
         if (activeTemplate) {
             activeTemplate.notes = notesArea.value;
+            saveTemplates();
+        }
+    });
+
+    notesArea.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+
+        const start = notesArea.selectionStart;
+        const end = notesArea.selectionEnd;
+        const value = notesArea.value;
+        const lineStart = value.lastIndexOf("\n", start - 1) + 1;
+        const lineEnd = value.indexOf("\n", start);
+        const currentLine = value.slice(lineStart, lineEnd === -1 ? value.length : lineEnd);
+        const trimmedLine = currentLine.trim();
+
+        if (!trimmedLine.startsWith("•")) {
+            return;
+        }
+
+        event.preventDefault();
+        const before = value.slice(0, start);
+        const after = value.slice(end);
+        const newline = before.endsWith("\n") ? "" : "\n";
+        const nextValue = `${before}${newline}• ${after}`;
+        notesArea.value = nextValue;
+        const caretPosition = start + newline.length + 2;
+        notesArea.setSelectionRange(caretPosition, caretPosition);
+        notesArea.focus();
+
+        const activeTemplate = getActiveTemplate();
+        if (activeTemplate) {
+            activeTemplate.notes = nextValue;
+            saveTemplates();
+        }
+    });
+
+    bulletBtn.addEventListener("click", () => {
+        const start = notesArea.selectionStart;
+        const end = notesArea.selectionEnd;
+        const value = notesArea.value;
+        const before = value.slice(0, start);
+        const after = value.slice(end);
+        const insertText = before.endsWith("\n") || before === "" ? "• " : "\n• ";
+        const nextValue = `${before}${insertText}${after}`;
+        notesArea.value = nextValue;
+        const nextPosition = start + insertText.length;
+        notesArea.setSelectionRange(nextPosition, nextPosition);
+        notesArea.focus();
+
+        const activeTemplate = getActiveTemplate();
+        if (activeTemplate) {
+            activeTemplate.notes = nextValue;
             saveTemplates();
         }
     });
@@ -861,6 +1394,7 @@ function wireEvents() {
         const activeTemplate = getActiveTemplate();
         if (activeTemplate) {
             activeTemplate.selections = {};
+            activeTemplate.sliderStates = {};
             saveTemplates();
             render();
         }
@@ -872,12 +1406,24 @@ function wireEvents() {
         render();
     });
 
+    databaseBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        window.location.href = "/database.html";
+    });
+
     document.addEventListener("click", (event) => {
         const menu = document.getElementById("projectsMenu");
+        const accountMenu = document.getElementById("accountMenu");
         const button = document.getElementById("projectsBtn");
+        const accountButton = document.getElementById("accountBtn");
         if (!menu || !button) return;
-        if (!menu.contains(event.target) && !button.contains(event.target)) {
+        const clickedInsideMenu = (menu.contains(event.target) || (accountMenu && accountMenu.contains(event.target)));
+        const clickedButton = (button.contains(event.target) || (accountButton && accountButton.contains(event.target)));
+        if (!clickedInsideMenu && !clickedButton) {
             showProjectsMenu = false;
+            if (accountMenu) {
+                accountMenu.classList.remove("open");
+            }
             render();
         }
     });
@@ -894,6 +1440,37 @@ function wireEvents() {
         render();
     });
 
+    publishBtn.addEventListener("click", async () => {
+        const activeTemplate = getActiveTemplate();
+        const title = (templateTitleInput?.value || activeTemplate?.title || "Untitled typing").trim();
+        const name = "public";
+        if (!activeTemplate) return;
+
+        try {
+            const response = await fetch("/api/people", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    name,
+                    title,
+                    notes: activeTemplate.notes || "",
+                    selections: activeTemplate.selections || {},
+                    sliderStates: activeTemplate.sliderStates || {},
+                    saviorState: activeTemplate.saviorState || "",
+                    demonState: activeTemplate.demonState || "",
+                    images: activeTemplate.images || [],
+                    coins: activeTemplate.coins || []
+                })
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || "Publish failed");
+            }
+        } catch (error) {
+            console.error(error);
+        }
+    });
+
 }
 
 function init() {
@@ -901,6 +1478,82 @@ function init() {
     loadTemplates();
     wireEvents();
     render();
+
+    const imageUploadArea = document.getElementById("imageUploadArea");
+    const imageFileInput = document.getElementById("imageFileInput");
+    const addImageBtn = document.getElementById("addImageBtn");
+
+    if (imageUploadArea && imageFileInput && addImageBtn) {
+        addImageBtn.addEventListener("click", () => {
+            imageFileInput.click();
+        });
+
+        imageUploadArea.addEventListener("click", (event) => {
+            if (event.target.closest(".image-preview-card")) {
+                return;
+            }
+        });
+
+        imageFileInput.addEventListener("change", (event) => {
+            const files = Array.from(event.target.files || []);
+            if (!files.length) return;
+
+            const activeTemplate = getActiveTemplate();
+            if (!activeTemplate) return;
+
+            activeTemplate.images = activeTemplate.images || [];
+
+            files.forEach((file) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const dataUrl = reader.result;
+                    if (typeof dataUrl !== "string") return;
+
+                    const probe = new Image();
+                    probe.onload = () => {
+                        const naturalWidth = Math.max(1, probe.naturalWidth || 220);
+                        const naturalHeight = Math.max(1, probe.naturalHeight || 180);
+                        const aspectRatio = naturalHeight / naturalWidth;
+
+                        const notesWidth = Math.max(140, document.getElementById("notesArea")?.clientWidth || 220);
+                        const areaWidth = Math.max(140, (imageUploadArea.clientWidth || 0) - 2);
+                        const maxWidth = Math.max(140, Math.min(notesWidth, areaWidth));
+                        const maxHeight = Math.max(160, (imageUploadArea.clientHeight || 0) - 24);
+
+                        let size = Math.max(140, Math.min(maxWidth, naturalWidth));
+                        let height = size * aspectRatio;
+                        if (height > maxHeight) {
+                            height = maxHeight;
+                            size = Math.max(140, Math.min(maxWidth, height / aspectRatio));
+                        }
+
+                        activeTemplate.images.push({
+                            src: dataUrl,
+                            size: Math.round(size),
+                            height: Math.round(height),
+                            aspectRatio
+                        });
+                        saveTemplates();
+                        render();
+                    };
+                    probe.onerror = () => {
+                        activeTemplate.images.push({
+                            src: dataUrl,
+                            size: 220,
+                            height: 180,
+                            aspectRatio: 180 / 220
+                        });
+                        saveTemplates();
+                        render();
+                    };
+                    probe.src = dataUrl;
+                };
+                reader.readAsDataURL(file);
+            });
+
+            imageFileInput.value = "";
+        });
+    }
 }
 
 if (typeof document !== "undefined") {
@@ -912,5 +1565,98 @@ if (typeof module !== "undefined" && module.exports) {
         filterTypesBySelections,
         generateTypeLibrary,
         buildTypeLabel
+    };
+}
+
+const emailInput = document.getElementById("accountEmailInput");
+const passwordInput = document.getElementById("accountPasswordInput");
+const statusBox = document.getElementById("accountStatus");
+
+
+document.getElementById("createAccountBtn").onclick = async () => {
+
+    const email = emailInput.value;
+    const password = passwordInput.value;
+
+    const { data, error } = await supabaseClient.auth.signUp({
+        email,
+        password
+    });
+
+    if(error){
+        statusBox.textContent = error.message;
+        console.error(error);
+        return;
+    }
+
+statusBox.textContent = "Account created!";
+showAccountPopup("Account created successfully!");    console.log(data);
+
+};
+
+
+document.getElementById("loginAccountBtn").onclick = async () => {
+
+    const email = emailInput.value;
+    const password = passwordInput.value;
+
+    const { data, error } = await supabaseClient.auth.signInWithPassword({
+        email,
+        password
+    });
+
+    if(error){
+statusBox.textContent = error.message;
+showAccountPopup("Error: " + error.message);        console.error(error);
+        return;
+    }
+
+statusBox.textContent = "Logged in!";
+showAccountPopup("Logged in successfully!");    console.log(data);
+
+};
+
+
+document.getElementById("logoutAccountBtn").onclick = async () => {
+
+    await supabaseClient.auth.signOut();
+
+statusBox.textContent = "Logged out";
+showAccountPopup("Logged out successfully!");
+};
+function showAccountPopup(message) {
+    alert(message);
+}
+const showPasswordBtn = document.getElementById("showPasswordBtn");
+
+if(showPasswordBtn){
+    showPasswordBtn.addEventListener("click", () => {
+
+        if(passwordInput.type === "password"){
+            passwordInput.type = "text";
+            showPasswordBtn.textContent = "🙈";
+        } else {
+            passwordInput.type = "password";
+            showPasswordBtn.textContent = "👁";
+        }
+
+    });
+}const googleLoginBtn = document.getElementById("googleLoginBtn");
+
+if (googleLoginBtn) {
+    googleLoginBtn.onclick = async () => {
+
+        const { data, error } = await supabaseClient.auth.signInWithOAuth({
+            provider: "google",
+            options: {
+                redirectTo: window.location.origin
+            }
+        });
+
+        if (error) {
+            showAccountPopup("Google login failed: " + error.message);
+            console.error(error);
+        }
+
     };
 }
