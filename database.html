@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Public Database - OP Studio</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="app-header">
+    <div class="app-brand">
+        OP Studio
+    </div>
+
+    <div class="header-main">
+        <div class="page-title">Public Database</div>
+    </div>
+
+    <div class="header-actions">
+        <div id="viewModeControls" class="view-mode-controls" style="display: none;">
+    <span id="viewModeLabel">Viewing Published Typing</span>
+    <button id="backToDatabaseBtn" type="button">← Back to Database</button>
+    <button id="duplicateTypingBtn" type="button">Copy to My Saved Typings</button>
+</div>
+        <a class="header-link-btn" href="/">Back to typing tool</a>
+    </div>
+</header>
+
+<main class="database-page">
+    <section class="database-card">
+        <div class="database-card-header">
+            <h1>Published Typings</h1>
+            <p>Browse public typing entries shared from the studio.</p>
+        </div>
+        <div class="database-toolbar">
+
+    <input
+        id="databaseSearch"
+        type="text"
+        placeholder="Search usernames or titles...">
+
+</div>
+        <div id="databaseEntries" class="database-entry-list">Loading public entries…</div>
+    </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/database.js"></script>
+</body>
+</html>

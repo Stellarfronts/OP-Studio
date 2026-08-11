@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Typing Checklist Studio</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="app-header">
+
+    <div class="app-brand">
+        OP Studio
+    </div>
+
+    <div class="header-main">
+
+        <span id="viewModeLabel" style="display: none;">
+            👁 Viewing Published Typing
+        </span>
+
+        <input id="templateTitle"
+               class="title-input"
+               type="text"
+               placeholder="Title">
+
+    </div>
+
+    <div class="header-actions">
+
+        <button id="clearBtn" type="button">Clear All</button>
+        <button id="themeBtn" type="button">Dark</button>
+        <button id="lockBtn" type="button">Lock</button>
+        <button id="databaseBtn" type="button">Database</button>
+        <button id="publishBtn" type="button">Publish</button>
+        <button id="newTemplateBtn" type="button">New</button>
+
+        <button id="backToDatabaseBtn" type="button" style="display: none;">
+            ← Back to Database
+        </button>
+
+        <button id="duplicateTypingBtn" type="button" style="display: none;">
+            Copy
+        </button>
+
+        <button id="projectsBtn" type="button">Saved Typings</button>
+        <button id="accountBtn" type="button">Account</button>
+
+    </div>
+
+</header>
+
+    <div id="projectsMenu" class="projects-menu"></div>
+<div id="accountMenu" class="account-menu">
+    <div><strong>Account</strong></div>
+
+    <input id="accountEmailInput" type="email" placeholder="Email address">
+
+    <input id="accountUsernameInput"
+       type="text"
+       placeholder="Username">
+
+<div class="password-wrapper">
+    <input id="accountPasswordInput" 
+           type="password" 
+           placeholder="Password">
+
+    <button id="showPasswordBtn" type="button">👁</button>
+</div>
+
+    <button id="createAccountBtn" type="button">
+        Create Account
+    </button>
+
+    <button id="loginAccountBtn" type="button">
+        Login
+    </button>
+
+<button id="googleLoginBtn" type="button">
+    Continue with Google
+</button>
+
+    <button id="logoutAccountBtn" type="button">
+        Logout
+    </button>
+
+<button id="changeAccountBtn" type="button">
+    Change Username
+</button>
+
+<button id="saveUsernameBtn" type="button">
+    Save Username
+</button>
+
+    <div id="accountStatus" class="status"></div>
+</div>
+
+<div id="viewModeBanner" class="view-mode-banner" style="display:none;">
+
+</div>
+
+    <main class="app-shell">
+        <aside class="sidebar results-panel">
+            <div class="sidebar-title-row"></div>
+            <div id="imageUploadArea" class="results-photo-area" aria-label="Person image placeholder">
+                <input id="imageFileInput" type="file" accept="image/*" multiple hidden>
+                <div id="imagePlaceholder" class="results-photo-placeholder">Add image</div>
+                <div id="imagePreviewContainer" class="image-preview-container"></div>
+                <button id="addImageBtn" class="add-image-btn" type="button">＋ Add image</button>
+            </div>
+            <div id="resultsList" class="results-list"></div>
+        </aside>
+
+        <section class="center-panel">
+            <div class="center-top-stats">
+                <div id="matchingCount" class="count-pill">
+                    <span id="typesRemaining">0 Types</span>
+                    <span id="typesEliminated">0% Eliminated</span>
+                </div>
+                <div class="progress-bar"><span id="progressFill"></span></div>
+                <div id="typingPreview" class="typing-preview">XX Xx/Xx XX/X(X) #x</div>
+            </div>
+            <div id="coinContainer" class="coin-container"></div>
+        </section>
+
+        <aside class="sidebar notes-panel">
+            <div class="notes-header">
+                <h2>Notes</h2>
+                <button id="bulletBtn" class="notes-bullet-btn" type="button">•</button>
+            </div>
+            <textarea id="notesArea" placeholder="Type your notes here..."></textarea>
+        </aside>
+    </main>
+
+    <div id="popupOverlay" class="popup-overlay">
+
+    <div id="popupBox" class="popup-box">
+
+        <h2 id="popupTitle"></h2>
+
+        <p id="popupMessage"></p>
+
+        <div id="popupButtons" class="popup-buttons"></div>
+
+    </div>
+
+</div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script src="js/supabase.js"></script>
+
+    <script src="js/script.js"></script>
+</body>
+</html>

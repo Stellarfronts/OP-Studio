@@ -1,0 +1,66 @@
+[
+    {
+        "name":"Type 1",
+        "observer":"Observer",
+        "oeoi":"Oe",
+        "dedi":"De",
+        "tf":"F",
+        "ns":"N"
+    },
+    {
+        "name":"Type 2",
+        "observer":"Observer",
+        "oeoi":"Oe",
+        "dedi":"Di",
+        "tf":"F",
+        "ns":"S"
+    },
+    {
+        "name":"Type 3",
+        "observer":"Observer",
+        "oeoi":"Oi",
+        "dedi":"Di",
+        "tf":"T",
+        "ns":"N"
+    },
+    {
+        "name":"Type 4",
+        "observer":"Observer",
+        "oeoi":"Oi",
+        "dedi":"De",
+        "tf":"T",
+        "ns":"S"
+    },
+    {
+        "name":"Type 5",
+        "observer":"Decider",
+        "oeoi":"Oe",
+        "dedi":"De",
+        "tf":"F",
+        "ns":"N"
+    },
+    {
+        "name":"Type 6",
+        "observer":"Decider",
+        "oeoi":"Oe",
+        "dedi":"Di",
+        "tf":"T",
+        "ns":"S"
+    },
+    {
+        "name":"Type 7",
+        "observer":"Decider",
+        "oeoi":"Oi",
+        "dedi":"De",
+        "tf":"F",
+        "ns":"S"
+    },
+    {
+        "name":"Type 8",
+        "observer":"Decider",
+        "oeoi":"Oi",
+        "dedi":"Di",
+        "tf":"T",
+        "ns":"N"
+    }
+]

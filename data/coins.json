@@ -1,0 +1,37 @@
+[
+    {
+        "id":"observer",
+        "left":"Observer",
+        "right":"Decider",
+        "leftDescription":"",
+        "rightDescription":""
+    },
+    {
+        "id":"oeoi",
+        "left":"Oe",
+        "right":"Oi",
+        "leftDescription":"",
+        "rightDescription":""
+    },
+    {
+        "id":"dedi",
+        "left":"De",
+        "right":"Di",
+        "leftDescription":"",
+        "rightDescription":""
+    },
+    {
+        "id":"tf",
+        "left":"F",
+        "right":"T",
+        "leftDescription":"",
+        "rightDescription":""
+    },
+    {
+        "id":"ns",
+        "left":"N",
+        "right":"S",
+        "leftDescription":"",
+        "rightDescription":""
+    }
+]
