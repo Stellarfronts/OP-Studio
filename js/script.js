@@ -1697,7 +1697,7 @@ render();
 
     databaseBtn.addEventListener("click", (event) => {
         event.stopPropagation();
-        window.location.href = "/database.html";
+window.location.href = "database.html";
     });
 
     document.addEventListener("click", (event) => {
