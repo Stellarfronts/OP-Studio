@@ -1729,29 +1729,15 @@ saveAll();
 render();
     });
 
-  publishBtn.addEventListener("click", async () => {
-
-    const activeTemplate = getActiveTemplate();
-    if (!activeTemplate) return;
-
-    const title = (templateTitleInput?.value || activeTemplate.title || "Untitled Typing").trim();
-
-    // Make sure the user is logged in
-    const {
-        data: { user }
-    } = await supabaseClient.auth.getUser();
-
-    if (!user) {
-showError("Login Required", "Please log in before publishing.");        return;
-    }
-
-    // Confirmation popup
 publishBtn.addEventListener("click", async () => {
-
     const activeTemplate = getActiveTemplate();
     if (!activeTemplate) return;
 
-    const title = (templateTitleInput?.value || activeTemplate.title || "Untitled Typing").trim();
+    const title = (
+        templateTitleInput?.value ||
+        activeTemplate.title ||
+        "Untitled Typing"
+    ).trim();
 
     const {
         data: { user }
@@ -1763,99 +1749,113 @@ publishBtn.addEventListener("click", async () => {
     }
 
     showConfirm("Publish Typing?", async () => {
+        console.log("=== PUBLISH CONFIRM CALLBACK RAN ===");
 
-const { data: profile, error: profileError } = await supabaseClient
-    .from("profiles")
-    .select("username")
-    .eq("id", user.id)
-    .single();
+        const { data: profile, error: profileError } = await supabaseClient
+            .from("profiles")
+            .select("username")
+            .eq("id", user.id)
+            .single();
 
-if (profileError || !profile) {
-    console.error(profileError);
-    showError("Publish Failed", "Unable to load your profile.");
-    return;
-}
+        if (profileError || !profile) {
+            console.error("Profile load failed:", profileError);
+            showError("Publish Failed", "Unable to load your profile.");
+            return;
+        }
 
-const typingData = {
-    notes: activeTemplate.notes || "",
-    selections: activeTemplate.selections || {},
-    sliderStates: activeTemplate.sliderStates || {},
-    saviorState: activeTemplate.saviorState || "",
-    demonState: activeTemplate.demonState || "",
-    images: activeTemplate.images || [],
-    coins: activeTemplate.coins || []
-};
+        const typingData = {
+            notes: activeTemplate.notes || "",
+            selections: activeTemplate.selections || {},
+            sliderStates: activeTemplate.sliderStates || {},
+            saviorState: activeTemplate.saviorState || "",
+            demonState: activeTemplate.demonState || "",
+            images: activeTemplate.images || [],
+            coins: activeTemplate.coins || []
+        };
 
-let publishedId = activeTemplate.publicTypingId;
+        let publishedId = activeTemplate.publicTypingId || null;
 
-if (publishedId) {
+        if (publishedId) {
+            const { data: existingPublication, error: lookupError } =
+                await supabaseClient
+                    .from("public_typings")
+                    .select("id, user_id")
+                    .eq("id", publishedId)
+                    .maybeSingle();
 
-    // Update existing publication
-    const { error } = await supabaseClient
-        .from("public_typings")
-        .update({
-            username: profile.username,
-            title: title,
-            data: typingData,
-            updated_at: new Date().toISOString()
-        })
-        .eq("id", publishedId)
-        .eq("user_id", user.id);
-
-    if (error) {
-        console.error("Publish update failed:", error);
-        showError("Publish Failed", error.message);
-        return;
-    }
-
-} else {
-
-    // Create new publication
-    const { data: publishedData, error } = await supabaseClient
-        .from("public_typings")
-        .insert([
-            {
-                user_id: user.id,
-                username: profile.username,
-                title: title,
-                possibilities: null,
-                revealed_type: null,
-                data: typingData
+            if (lookupError) {
+                console.error("Publication lookup failed:", lookupError);
+                showError("Publish Failed", lookupError.message);
+                return;
             }
-        ])
-        .select("id")
-        .single();
 
-    if (error) {
-        console.error("Publish failed:", error);
-        showError("Publish Failed", error.message);
-        return;
-    }
+            if (!existingPublication || existingPublication.user_id !== user.id) {
+                console.log("Old publication no longer exists. Creating new one.");
+                publishedId = null;
+            }
+        }
 
-    publishedId = publishedData.id;
-}
+        if (publishedId) {
+            const { error } = await supabaseClient
+                .from("public_typings")
+                .update({
+                    username: profile.username,
+                    title: title,
+                    data: typingData,
+                    updated_at: new Date().toISOString()
+                })
+                .eq("id", publishedId)
+                .eq("user_id", user.id);
 
-activeTemplate.publicTypingId = publishedId;
+            if (error) {
+                console.error("Publish update failed:", error);
+                showError("Publish Failed", error.message);
+                return;
+            }
 
-saveAll();
+            console.log("Publication updated:", publishedId);
 
-showSuccess(
-    activeTemplate.publicTypingId
-        ? "Typing Published"
-        : "Typing Published"
-);
+        } else {
+            const { data: publishedData, error } = await supabaseClient
+                .from("public_typings")
+                .insert([{
+                    user_id: user.id,
+                    username: profile.username,
+                    title: title,
+                    possibilities: null,
+                    revealed_type: null,
+                    data: typingData
+                }])
+                .select("id")
+                .single();
 
-    });
+            if (error || !publishedData) {
+                console.error("Publish insert failed:", error);
+                showError(
+                    "Publish Failed",
+                    error?.message || "No publication ID returned."
+                );
+                return;
+            }
 
+            publishedId = publishedData.id;
+
+            console.log("New publication created:", publishedId);
+        }
+
+            activeTemplate.publicTypingId = publishedId;
+
+    saveAll();
+
+    console.log("Publish successful:", publishedId);
+    showSuccess("Typing Published");
 });
+});  // closes publishBtn.addEventListener
 
-console.log("Successfully saved!");
-showSuccess("Typing Published");
-});
-
-}
+}      // closes wireEvents()
 
 async function init() {
+    
     typeLibrary = generateTypeLibrary();
 
     const copiedFromDatabase = new URLSearchParams(window.location.search).get("copied");
@@ -1887,26 +1887,29 @@ if (readOnlyMode) {
 }
 
 if (imageUploadArea && imageFileInput && addImageBtn) {
-    addImageBtn.addEventListener("click", () => {
-        if (viewMode) {
-            return;
-        }
+        addImageBtn.addEventListener("click", () => {
+            if (viewMode) {
+                return;
+            }
 
-        imageFileInput.click();
-    });
-
-imageUploadArea.addEventListener("click", (event) => {
-
-    if (readOnlyMode) {
-        return;
-    }
-
+            imageFileInput.click();
         });
 
-imageFileInput.addEventListener("change", (event) => {
-    if (readOnlyMode) {
-        return;
-    }
+        imageUploadArea.addEventListener("click", (event) => {
+            if (readOnlyMode || viewMode) {
+                return;
+            }
+
+            if (!event.target.closest(".image-preview-card")) {
+                imageFileInput.click();
+            }
+        });
+
+        imageFileInput.addEventListener("change", (event) => {
+            if (readOnlyMode || viewMode) {
+                return;
+            }
+
             const files = Array.from(event.target.files || []);
             if (!files.length) return;
 
@@ -2058,13 +2061,19 @@ function showPopup(title, message = "", buttons = []) {
 
         btn.textContent = button.text;
 
-        btn.onclick = () => {
-            overlay.classList.remove("open");
+        btn.onclick = async () => {
+    console.log("POPUP BUTTON CLICKED:", button.text);
 
-            if (button.action) {
-                button.action();
-            }
-        };
+    overlay.classList.remove("open");
+
+    if (button.action) {
+        console.log("POPUP ACTION EXISTS");
+        await button.action();
+        console.log("POPUP ACTION FINISHED");
+    } else {
+        console.log("NO POPUP ACTION");
+    }
+};
 
         popupButtons.appendChild(btn);
 
@@ -2133,7 +2142,6 @@ const passwordInput = document.getElementById("accountPasswordInput");
 const statusBox = document.getElementById("accountStatus");
 
 document.getElementById("createAccountBtn").onclick = async () => {
-
     const email = emailInput.value;
     const username = usernameInput.value;
     const password = passwordInput.value;
@@ -2143,7 +2151,7 @@ document.getElementById("createAccountBtn").onclick = async () => {
         password
     });
 
-    if(error){
+    if (error) {
         statusBox.textContent = error.message;
         console.error(error);
         showError("Account Failed", error.message);
@@ -2159,7 +2167,7 @@ document.getElementById("createAccountBtn").onclick = async () => {
             }
         ]);
 
-    if(profileError){
+    if (profileError) {
         console.error(profileError);
         showError("Profile Failed", profileError.message);
         return;
@@ -2167,9 +2175,7 @@ document.getElementById("createAccountBtn").onclick = async () => {
 
     statusBox.textContent = "Account created!";
     showSuccess("Account Created");
-
 };
-
 
 document.getElementById("loginAccountBtn").onclick = async () => {
     console.log("LOGIN BUTTON CLICKED");
@@ -2182,63 +2188,53 @@ document.getElementById("loginAccountBtn").onclick = async () => {
         password
     });
 
-if(error){
-    statusBox.textContent = error.message;
-    showError("Login Failed", error.message);
-    return;
-}
+    if (error) {
+        statusBox.textContent = error.message;
+        showError("Login Failed", error.message);
+        return;
+    }
 
-statusBox.textContent = "Logged in!";
-showSuccess("Logged In");
-console.log("LOGIN HANDLER REACHED");
-console.log(data);
+    statusBox.textContent = "Logged in!";
+    showSuccess("Logged In");
+    console.log("LOGIN HANDLER REACHED");
+    console.log(data);
 
-console.log("Starting cloud load after login...");
+    console.log("Starting cloud load after login...");
 
-await loadTemplatesFromCloud();
-loadAccountInfo();
-render();
-
+    await loadTemplatesFromCloud();
+    loadAccountInfo();
+    render();
 };
 
-
 document.getElementById("logoutAccountBtn").onclick = async () => {
-
     showConfirm("Log out?", async () => {
+        const { error } = await supabaseClient.auth.signOut();
 
-const { error } = await supabaseClient.auth.signOut();
+        if (error) {
+            console.error("Logout failed:", error);
+            return;
+        }
 
-if (error) {
-    console.error("Logout failed:", error);
-    return;
-}
+        accountEmailInput.value = "";
+        usernameInput.value = "";
+        passwordInput.value = "";
 
-accountEmailInput.value = "";
-usernameInput.value = "";
-passwordInput.value = "";
+        accountEmailInput.disabled = false;
+        usernameInput.disabled = false;
 
-accountEmailInput.disabled = false;
-usernameInput.disabled = false;
+        accountStatus.textContent = "Not logged in.";
 
-accountStatus.textContent = "Not logged in.";
-
-showSuccess("Logged Out");
-
-await loadAccountInfo();
-
+        showSuccess("Logged Out");
+        await loadAccountInfo();
     });
-
 };
 
 async function loadAccountInfo() {
-
     const {
         data: { user }
     } = await supabaseClient.auth.getUser();
 
-
     if (!user) {
-
         accountEmailInput.value = "";
         usernameInput.value = "";
 
@@ -2246,10 +2242,8 @@ async function loadAccountInfo() {
         usernameInput.disabled = false;
 
         accountStatus.textContent = "Not logged in.";
-
         return;
     }
-
 
     const { data: profile, error } = await supabaseClient
         .from("profiles")
@@ -2257,14 +2251,11 @@ async function loadAccountInfo() {
         .eq("id", user.id)
         .single();
 
-
     if (error) {
         console.error(error);
     }
 
-
     accountEmailInput.value = user.email;
-
 
     if (profile) {
         usernameInput.value = profile.username;
@@ -2273,41 +2264,33 @@ async function loadAccountInfo() {
         accountStatus.textContent = "Profile missing.";
     }
 
-
     accountEmailInput.disabled = true;
     usernameInput.disabled = true;
 
     passwordInput.value = "";
     passwordInput.placeholder = "Password hidden";
 
-
     if (profile) {
         accountStatus.textContent = "Logged in.";
     }
-
 }
 
 document.getElementById("changeAccountBtn").onclick = () => {
-
     usernameInput.disabled = false;
     usernameInput.focus();
-
 };
 
 document.getElementById("saveUsernameBtn").onclick = async () => {
-
     const newUsername = usernameInput.value.trim();
 
     const {
         data: { user }
     } = await supabaseClient.auth.getUser();
 
-
     if (!user) {
         showError("Not Logged In", "Please log in first.");
         return;
     }
-
 
     const { error } = await supabaseClient
         .from("profiles")
@@ -2316,39 +2299,34 @@ document.getElementById("saveUsernameBtn").onclick = async () => {
         })
         .eq("id", user.id);
 
-
     if (error) {
         console.error(error);
         showError("Username Failed", error.message);
         return;
     }
 
-
     usernameInput.disabled = true;
-
     showSuccess("Username Saved");
-
 };
 
 const showPasswordBtn = document.getElementById("showPasswordBtn");
 
-if(showPasswordBtn){
+if (showPasswordBtn) {
     showPasswordBtn.addEventListener("click", () => {
-
-        if(passwordInput.type === "password"){
+        if (passwordInput.type === "password") {
             passwordInput.type = "text";
             showPasswordBtn.textContent = "🙈";
         } else {
             passwordInput.type = "password";
             showPasswordBtn.textContent = "👁";
         }
-
     });
-}const googleLoginBtn = document.getElementById("googleLoginBtn");
+}
+
+const googleLoginBtn = document.getElementById("googleLoginBtn");
 
 if (googleLoginBtn) {
     googleLoginBtn.onclick = async () => {
-
         const { data, error } = await supabaseClient.auth.signInWithOAuth({
             provider: "google",
             options: {
@@ -2357,46 +2335,39 @@ if (googleLoginBtn) {
         });
 
         if (error) {
-            showAccountPopup("Google login failed: " + error.message);
             console.error(error);
+            showAccountPopup("Google login failed: " + error.message);
         }
-
     };
 }
+
 document.addEventListener("DOMContentLoaded", async () => {
-
     await createProfileIfMissing();
-
     await loadAccountInfo();
 
     const {
         data: { user }
     } = await supabaseClient.auth.getUser();
 
-if (user) {
-    console.log("Logged-in user detected. Loading cloud data...");
+    if (user) {
+        console.log("Logged-in user detected. Loading cloud data...");
 
-    const cloudLoaded = await loadTemplatesFromCloud();
+        const cloudLoaded = await loadTemplatesFromCloud();
+        if (!cloudLoaded) {
+            console.log("No cloud data found. Saving local Typings to cloud...");
+            await saveTemplatesToCloud();
+        }
 
-    if (!cloudLoaded) {
-        console.log("No cloud data found. Saving local Typings to cloud...");
-        await saveTemplatesToCloud();
+        render();
     }
-
-    render();
-}
-
 });
 
 async function createProfileIfMissing() {
-
     const {
         data: { user }
     } = await supabaseClient.auth.getUser();
 
-
     if (!user) return;
-
 
     const { data: profile } = await supabaseClient
         .from("profiles")
@@ -2404,9 +2375,7 @@ async function createProfileIfMissing() {
         .eq("id", user.id)
         .maybeSingle();
 
-
     if (!profile) {
-
         const { error } = await supabaseClient
             .from("profiles")
             .insert([
@@ -2416,10 +2385,9 @@ async function createProfileIfMissing() {
                 }
             ]);
 
-
         if (error) {
             console.error("Profile creation failed:", error);
         }
     }
-
 }
+
