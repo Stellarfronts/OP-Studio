@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Messages - OP Studio</title>
+
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+
+<header class="app-header">
+
+    <div class="app-brand">
+        OP Studio
+    </div>
+
+    <div class="header-main">
+        <div class="page-title">
+            Messages
+        </div>
+    </div>
+
+    <div class="header-actions">
+        <a
+            class="header-link-btn"
+            href="database.html">
+            ← Database
+        </a>
+    </div>
+
+</header>
+
+
+<main class="messages-page">
+
+    <section class="messages-card">
+
+        <div class="messages-card-header">
+
+            <h1>Messages</h1>
+
+            <p>
+                Your conversations with other OP Studio users.
+            </p>
+
+        </div>
+
+
+        <div class="messages-layout">
+
+            <!-- Conversation list -->
+
+            <aside
+                id="conversationList"
+                class="conversation-list">
+
+                <div class="conversation-empty">
+                    No conversations yet.
+                </div>
+
+            </aside>
+
+
+            <!-- Current conversation -->
+
+           <section
+    id="chatPanel"
+    class="chat-panel">
+
+    <div
+        id="chatHeader"
+        class="chat-header">
+
+        <h2 id="chatTitle">
+            Select a conversation
+        </h2>
+
+    </div>
+
+
+    <div
+        id="messageList"
+        class="message-list">
+
+        <div class="chat-empty">
+
+            <p>
+                Choose a conversation to start messaging.
+            </p>
+
+        </div>
+
+    </div>
+
+
+    <form
+        id="messageForm"
+        class="message-form"
+        style="display: none;">
+
+        <input
+            id="messageInput"
+            type="text"
+            placeholder="Write a message..."
+            maxlength="2000"
+            autocomplete="off">
+
+        <button
+            id="sendMessageBtn"
+            type="submit">
+            Send
+        </button>
+
+    </form>
+
+</section>
+
+</main>
+
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script src="js/supabase.js"></script>
+
+<script src="js/messages.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Notifications - OP Studio</title>
+
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+
+    <main class="notifications-page">
+
+        <div class="notifications-header">
+
+            <button
+                id="backToDatabaseBtn"
+                type="button">
+                ← Database
+            </button>
+
+            <h1>Notifications</h1>
+
+            <button
+                id="markAllReadBtn"
+                type="button">
+                Mark All Read
+            </button>
+
+        </div>
+
+        <section id="notificationsList">
+            Loading notifications...
+        </section>
+
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/supabase.js"></script>
+    <script src="js/notifications.js"></script>
+
+</body>
+</html>

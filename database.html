@@ -26,18 +26,83 @@
     </div>
 </header>
 
+<button id="notificationsBtn" type="button">
+    Notifications
+    <span id="notificationBadge" class="notification-badge" style="display: none;">0</span>
+</button>
+
+<div id="notificationsPanel" class="notifications-panel">
+
+    <div class="notifications-panel-header">
+        <h2>Notifications</h2>
+
+        <button
+            id="closeNotificationsBtn"
+            type="button">
+            ×
+        </button>
+    </div>
+
+    <div id="notificationsList" class="notifications-list">
+        Loading notifications...
+    </div>
+
+</div>
+
 <main class="database-page">
     <section class="database-card">
         <div class="database-card-header">
             <h1>Published Typings</h1>
             <p>Browse public typing entries shared from the studio.</p>
         </div>
-        <div class="database-toolbar">
+       <div class="database-toolbar">
 
-    <input
-        id="databaseSearch"
-        type="text"
-        placeholder="Search usernames or titles...">
+    <div class="database-search-row">
+        <input
+            id="databaseSearch"
+            type="text"
+            placeholder="Search usernames or titles...">
+
+        <select id="databaseSort">
+            <option value="newest">Newest</option>
+            <option value="oldest">Oldest</option>
+            <option value="username-asc">Username A–Z</option>
+            <option value="username-desc">Username Z–A</option>
+            <option value="title-asc">Title A–Z</option>
+            <option value="title-desc">Title Z–A</option>
+        </select>
+    </div>
+
+    <div class="database-filters">
+
+        <select id="databaseTypeFilter">
+            <option value="all">All Types</option>
+        </select>
+
+        <select id="databasePossibilitiesFilter">
+            <option value="all">All Result Counts</option>
+            <option value="1">1 result</option>
+            <option value="2-5">2–5 results</option>
+            <option value="6-10">6–10 results</option>
+            <option value="11-20">11–20 results</option>
+            <option value="21+">21+ results</option>
+        </select>
+
+        <select id="databaseDateFilter">
+            <option value="all">Any Date</option>
+            <option value="today">Today</option>
+            <option value="week">Past Week</option>
+            <option value="month">Past Month</option>
+            <option value="year">Past Year</option>
+        </select>
+
+        <button
+            id="clearDatabaseFilters"
+            type="button">
+            Clear Filters
+        </button>
+
+    </div>
 
 </div>
         <div id="databaseEntries" class="database-entry-list">Loading public entries…</div>

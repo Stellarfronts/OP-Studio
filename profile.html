@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Profile - OP Studio</title>
+
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+
+    <main class="profile-page">
+
+        <div class="profile-header">
+
+            <button
+                id="backToDatabaseBtn"
+                class="profile-back-btn"
+                type="button">
+                ← Database
+            </button>
+
+            <section id="profileHeader">
+    <h1 id="profileUsername">Loading profile...</h1>
+
+    <div id="profileBio"></div>
+
+<div id="profileBioEditor" style="display: none;">
+    <textarea
+        id="profileBioInput"
+        placeholder="Write something about yourself..."
+        maxlength="500"></textarea>
+
+    <button id="saveBioBtn" type="button">
+        Save Bio
+    </button>
+</div>
+
+            <div id="profileStatus"></div>
+
+            <div class="profile-stats">
+
+                <div class="profile-stat">
+                    <strong id="profileTypingCount">0</strong>
+                    <span>Typings</span>
+                </div>
+
+                <div class="profile-stat">
+                    <strong id="profileFollowerCount">0</strong>
+                    <span>Followers</span>
+                </div>
+
+                <div class="profile-stat">
+                    <strong id="profileFollowingCount">0</strong>
+                    <span>Following</span>
+                </div>
+
+            </div>
+
+            <button id="profileFollowBtn" type="button">
+    Follow
+</button>
+
+<button id="profileMessageBtn" type="button">
+    Message
+</button>
+
+<button id="profileMuteBtn" type="button">
+    Mute
+</button>
+
+<button id="profileBlockBtn" type="button">
+    Block
+</button>
+
+<button id="profileTypingNotifyBtn" type="button">
+    Typing Notifications
+</button>
+
+</section>
+
+</div>
+
+        <section class="profile-typings-section">
+
+            <h2>Published Typings</h2>
+
+            <div id="profileTypings">
+                Loading typings...
+            </div>
+
+        </section>
+
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/supabase.js"></script>
+    <script src="js/profile.js"></script>
+
+</body>
+</html>

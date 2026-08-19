@@ -25,9 +25,15 @@ let editingLocked = false;
 let darkMode = false;
 let showProjectsMenu = false;
 let showTrash = false;
+let showNotificationsMenu = false;
 let folders = [];
 let trash = [];
 let draggingTemplateId = null;
+let cloudSaveQueue =
+    Promise.resolve();
+
+const notificationsPageBtn =
+    document.getElementById("notificationsPageBtn");
 
 function normalizeFolderId(title) {
     return (title || "")
@@ -98,22 +104,25 @@ function normalizeCoins(coins = DEFAULT_COIN_DEFS) {
 
 function getSelectionValueFromSlider(coin, sliderValue) {
     const value = Number(sliderValue);
-    if (value <= 0) {
+
+    // Far-left + middle-left both mean
+    // the left coin is selected.
+    if (value <= 1) {
         return coin.options[0].value;
     }
-    if (value === 1) {
-        return "__mid_left__";
-    }
+
+    // Center means neither side is selected.
     if (value === 2) {
-        return "__mid_center__";
+        return undefined;
     }
-    if (value === 3) {
-        return "__mid_right__";
-    }
-    if (value >= 4) {
+
+    // Middle-right + far-right both mean
+    // the right coin is selected.
+    if (value >= 3) {
         return coin.options[1].value;
     }
-    return coin.options[1].value;
+
+    return undefined;
 }
 
 function getSliderValueFromSelection(coin, selectedValue) {
@@ -264,50 +273,89 @@ function saveTemplates() {
 
 }
 
-async function saveTemplatesToCloud() {
+function saveTemplatesToCloud() {
     if (readOnlyMode || viewMode) {
-        return;
+        return Promise.resolve();
     }
 
-    if (typeof supabaseClient === "undefined") {
-        return;
+    if (
+        typeof supabaseClient ===
+        "undefined"
+    ) {
+        return Promise.resolve();
     }
 
-    const {
-        data: { user },
-        error: userError
-    } = await supabaseClient.auth.getUser();
-
-    if (userError || !user) {
-        return;
-    }
-
-    const cloudData = {
-        templates,
-        folders,
-        trash,
-        editingLocked,
-        darkMode,
-        activeTemplateId,
-        showTrash
-    };
-
-    const { error } = await supabaseClient
-        .from("user_data")
-        .upsert({
-            user_id: user.id,
-            data: cloudData,
-            updated_at: new Date().toISOString()
-        }, {
-            onConflict: "user_id"
+    const cloudSnapshot =
+        structuredClone({
+            templates,
+            folders,
+            trash,
+            editingLocked,
+            darkMode,
+            activeTemplateId,
+            showTrash
         });
 
-    if (error) {
-        console.error("Cloud save failed:", error);
-        return;
-    }
+    cloudSaveQueue =
+        cloudSaveQueue
+            .then(async () => {
+                const {
+                    data: { user },
+                    error: userError
+                } =
+                    await supabaseClient
+                        .auth
+                        .getUser();
 
-    console.log("Cloud save successful!");
+                if (
+                    userError ||
+                    !user
+                ) {
+                    return;
+                }
+
+                const { error } =
+                    await supabaseClient
+                        .from("user_data")
+                        .upsert(
+                            {
+                                user_id:
+                                    user.id,
+
+                                data:
+                                    cloudSnapshot,
+
+                                updated_at:
+                                    new Date()
+                                        .toISOString()
+                            },
+                            {
+                                onConflict:
+                                    "user_id"
+                            }
+                        );
+
+                if (error) {
+                    console.error(
+                        "Cloud save failed:",
+                        error
+                    );
+
+                    return;
+                }
+
+                console.log(
+                    "Cloud save successful!"
+                );
+            })
+            .catch(error => {
+                console.error(
+                    "Cloud save queue failed:",
+                    error
+                );
+            });
+
+    return cloudSaveQueue;
 }
 
 function saveAll() {
@@ -425,11 +473,11 @@ function moveTemplateToTrash(templateId) {
     });
 
     if (activeTemplateId === templateId) {
-        activeTemplateId = templates[0]?.id || null;
-    }
+    activeTemplateId = templates[0]?.id || null;
+}
 
-   saveAll();
-    render();
+saveAll();
+render();
 }
 
 function restoreTemplateFromTrash(trashId) {
@@ -509,130 +557,521 @@ function handleTemplateDrop(folderId, targetTemplateId = null) {
     draggingTemplateId = null;
 }
 
-function filterTypesBySelections(types, activeSelections = {}) {
-    const { special, ...selectionFilters } = activeSelections;
-
+function filterTypesBySelections(
+    types,
+    activeSelections = {}
+) {
     return types.filter(type => {
-        const directMatches = Object.entries(selectionFilters).every(([id, value]) => {
-            const selectedValue = type.selections ? type.selections[id] : type[id];
-            return selectedValue === value;
-        });
 
-        if (!directMatches) return false;
+        return Object.entries(
+            activeSelections
+        ).every(([id, rawValue]) => {
 
-        if (special) {
-            const axis = buildAxisSegment(type.selections.cb, type.selections.sp, special);
-            const topPair = axis.split("/")[0].split("");
-            const conflictMap = {
-                "(P)": ["P"],
-                "(S)": ["S"],
-                "(C)": ["C"],
-                "(B)": ["B"]
-            };
-            const blocked = conflictMap[special] || [];
-            if (blocked.some(letter => topPair.includes(letter))) {
-                return false;
+            const coin =
+                DEFAULT_COIN_DEFS.find(
+                    item =>
+                        item.id === id
+                );
+
+            let value = rawValue;
+
+            /*
+                Compatibility with older
+                saved typings that used
+                the temporary midpoint
+                strings.
+            */
+
+            if (
+                value === "__mid_center__"
+            ) {
+                return true;
             }
-        }
 
-        return true;
+            if (
+                value === "__mid_left__" &&
+                coin
+            ) {
+                value =
+                    coin.options[0].value;
+            }
+
+            if (
+                value === "__mid_right__" &&
+                coin
+            ) {
+                value =
+                    coin.options[1].value;
+            }
+
+            return (
+                type.selections[id] ===
+                value
+            );
+        });
     });
 }
 
-
 function generateTypeLibrary() {
     const library = [];
-    const coinIds = DEFAULT_COIN_DEFS.map(coin => coin.id);
-    const optionSets = DEFAULT_COIN_DEFS.map(coin => coin.options.map(option => option.value));
 
-    const recurse = (index, selections) => {
-        if (index === coinIds.length) {
-            const label = buildTypeLabel(selections);
-            if (label) {
-                library.push({
-                    id: library.length + 1,
-                    label,
-                    selections
-                });
-            }
+    const binaryChoices = {
+        od: ["O", "D"],
+        diDe: ["Di", "De"],
+        oiOe: ["Oi", "Oe"],
+        ns: ["N", "S"],
+        ft: ["F", "T"],
+        fDeMDe: ["fDe", "mDe"],
+        fSmS: ["fS", "mS"],
+        numOneFour: ["#1", "#4"],
+        numTwoThree: ["#2", "#3"]
+    };
+
+    const keys =
+        Object.keys(binaryChoices);
+
+    function getFirstAnimal(
+        oiOe,
+        diDe
+    ) {
+        if (
+            oiOe === "Oe" &&
+            diDe === "Di"
+        ) {
+            return "C";
+        }
+
+        if (
+            oiOe === "Oe" &&
+            diDe === "De"
+        ) {
+            return "P";
+        }
+
+        if (
+            oiOe === "Oi" &&
+            diDe === "De"
+        ) {
+            return "B";
+        }
+
+        if (
+            oiOe === "Oi" &&
+            diDe === "Di"
+        ) {
+            return "S";
+        }
+
+        return null;
+    }
+
+    function recurse(
+        index,
+        selections
+    ) {
+        if (index < keys.length) {
+            const key = keys[index];
+
+            binaryChoices[key].forEach(
+                value => {
+                    recurse(
+                        index + 1,
+                        {
+                            ...selections,
+                            [key]: value
+                        }
+                    );
+                }
+            );
+
             return;
         }
 
-        optionSets[index].forEach(option => {
-            recurse(index + 1, { ...selections, [coinIds[index]]: option });
-        });
-    };
+        const firstAnimal =
+            getFirstAnimal(
+                selections.oiOe,
+                selections.diDe
+            );
+
+        if (!firstAnimal) {
+            return;
+        }
+
+        /*
+            First animal determines
+            which axis the second animal
+            must come from.
+        */
+
+        const secondChoices =
+            firstAnimal === "C" ||
+            firstAnimal === "B"
+                ? ["S", "P"]
+                : ["C", "B"];
+
+        secondChoices.forEach(
+            secondAnimal => {
+
+                const remainingAnimals =
+                    [
+                        "C",
+                        "S",
+                        "P",
+                        "B"
+                    ].filter(
+                        animal =>
+                            animal !==
+                                firstAnimal &&
+                            animal !==
+                                secondAnimal
+                    );
+
+                /*
+                    Either one of the two
+                    remaining animals can
+                    occupy the final
+                    parenthesized position.
+
+                    The other is then
+                    automatically third.
+                */
+
+                remainingAnimals.forEach(
+                    lastAnimal => {
+
+                        let cb;
+                        let sp;
+
+                        if (
+                            firstAnimal === "C" ||
+                            firstAnimal === "B"
+                        ) {
+                            cb =
+                                firstAnimal;
+
+                            sp =
+                                secondAnimal;
+                        } else {
+                            sp =
+                                firstAnimal;
+
+                            cb =
+                                secondAnimal;
+                        }
+
+                        const fullSelections = {
+                            ...selections,
+                            cb,
+                            sp,
+                            special:
+                                `(${lastAnimal})`
+                        };
+
+                        library.push({
+                            id:
+                                library.length +
+                                1,
+
+                            label:
+                                buildTypeLabel(
+                                    fullSelections
+                                ),
+
+                            selections:
+                                fullSelections
+                        });
+                    }
+                );
+            }
+        );
+    }
 
     recurse(0, {});
+
+    console.log(
+        "Complete type library:",
+        library.length
+    );
+
     return library;
 }
 
 function buildTypeLabel(selections) {
-    const firstPair = buildFirstPair(selections.od, selections.fSmS, selections.fDeMDe);
-    const styleSegment = buildStyleSegment(selections.ft, selections.diDe, selections.ns, selections.oiOe, selections.od);
-    const axisSegment = buildAxisSegment(selections.cb, selections.sp, selections.special);
-    const numberCode = buildNumberCode(selections.numOneFour, selections.numTwoThree);
-    if (!firstPair || !styleSegment || !axisSegment || !numberCode) return "";
+    const firstPair =
+        buildPreviewFirstPair(
+            selections.od,
+            selections.fSmS,
+            selections.fDeMDe
+        );
+
+    const styleSegment =
+        buildPreviewStyleSegment(
+            selections.ft,
+            selections.diDe,
+            selections.ns,
+            selections.oiOe,
+            selections.od
+        );
+
+    const axisSegment =
+        buildPreviewAxisSegment(
+            selections.oiOe,
+            selections.diDe,
+            selections.cb,
+            selections.sp,
+            selections.special
+        );
+
+    const numberCode =
+        buildPreviewNumberCode(
+            selections.numOneFour,
+            selections.numTwoThree
+        );
+
     return `${firstPair} ${styleSegment} ${axisSegment} ${numberCode}`.trim();
 }
 
 function buildSavedTypingPreviewLabel(selections) {
     const firstPair = buildPreviewFirstPair(selections.od, selections.fSmS, selections.fDeMDe);
     const styleSegment = buildPreviewStyleSegment(selections.ft, selections.diDe, selections.ns, selections.oiOe, selections.od);
-    const axisSegment = buildPreviewAxisSegment(selections.cb, selections.sp, selections.special);
+const axisSegment = buildPreviewAxisSegment(
+    selections.oiOe,
+    selections.diDe,
+    selections.cb,
+    selections.sp,
+    selections.special
+);
     const numberCode = buildPreviewNumberCode(selections.numOneFour, selections.numTwoThree);
-    return `${firstPair || "XX"} ${styleSegment || "Xx/Xx"} ${axisSegment || "XX/X(X)"} ${numberCode || "#X"}`.trim();
+    return `${firstPair || "XX"} ${styleSegment || "Xx/Xx"} ${axisSegment || "XX/X(X)"} ${numberCode || "#x"}`.trim();
 }
 
-function buildPreviewFirstPair(od, fSmS, fDeMDe) {
-    const leftValue = fSmS ? (fSmS === "mS" ? "M" : "F") : "X";
-    const rightValue = fDeMDe ? (fDeMDe === "mDe" ? "M" : "F") : "X";
+function buildPreviewFirstPair(
+    od,
+    fSmS,
+    fDeMDe
+) {
+    const left =
+        fSmS === "mS"
+            ? "M"
+            : fSmS === "fS"
+                ? "F"
+                : "X";
+
+    const right =
+        fDeMDe === "mDe"
+            ? "M"
+            : fDeMDe === "fDe"
+                ? "F"
+                : "X";
+
+    return `${left}${right}`;
+}
+
+function buildPreviewStyleSegment(
+    ft,
+    diDe,
+    ns,
+    oiOe,
+    od
+) {
+    // =========================
+    // Decider function
+    // F/T + Di/De
+    // =========================
+
+    const deciderLetter =
+        ft === "F"
+            ? "F"
+            : ft === "T"
+                ? "T"
+                : "X";
+
+    const deciderDirection =
+        diDe === "Di"
+            ? "i"
+            : diDe === "De"
+                ? "e"
+                : "x";
+
+    const decider =
+        `${deciderLetter}${deciderDirection}`;
+
+
+    // =========================
+    // Observer function
+    // S/N + Oi/Oe
+    // =========================
+
+    const observerLetter =
+        ns === "S"
+            ? "S"
+            : ns === "N"
+                ? "N"
+                : "X";
+
+    const observerDirection =
+        oiOe === "Oi"
+            ? "i"
+            : oiOe === "Oe"
+                ? "e"
+                : "x";
+
+    const observer =
+        `${observerLetter}${observerDirection}`;
+
+
+    // =========================
+    // O / D determines order
+    // =========================
+
+    if (od === "O") {
+        return `${observer}/${decider}`;
+    }
+
     if (od === "D") {
-        return `${rightValue}${leftValue}`;
+        return `${decider}/${observer}`;
     }
-    return `${leftValue}${rightValue}`;
+
+    /*
+        O/D is unknown.
+
+        We know the functions themselves,
+        but we DON'T know their order yet.
+
+        ↔ means "order unresolved".
+    */
+    return `${observer}↔${decider}`;
 }
 
-function buildPreviewStyleSegment(ft, diDe, ns, oiOe, od) {
-    if (!ft || !diDe || !ns || !oiOe || !od) {
-        return "Xx/Xx";
+function buildPreviewAxisSegment(
+    oiOe,
+    diDe,
+    cb,
+    sp,
+    special
+) {
+    // =========================
+    // First animal
+    // Oi/Oe + Di/De
+    // =========================
+
+    let first = "X";
+
+    if (oiOe === "Oe" && diDe === "Di") {
+        first = "C";
+    } else if (oiOe === "Oe" && diDe === "De") {
+        first = "P";
+    } else if (oiOe === "Oi" && diDe === "De") {
+        first = "B";
+    } else if (oiOe === "Oi" && diDe === "Di") {
+        first = "S";
     }
 
-    const firstPart = `${ft === "F" ? "F" : "T"}${diDe === "Di" ? "i" : "e"}`;
-    const secondPart = (oiOe === "Oe"
-        ? (ns === "N" ? "Ne" : "Se")
-        : (oiOe === "Oi" ? (ns === "N" ? "Ni" : "Si") : "Xx"));
-    const leftPart = od === "O" ? secondPart : firstPart;
-    const rightPart = od === "O" ? firstPart : secondPart;
-    return `${leftPart}/${rightPart}`;
-}
+    // =========================
+    // Second animal
+    //
+    // Must come from the OTHER
+    // animal axis from the first.
+    // =========================
 
-function normalizeSpecialLetter(special) {
-    return (special || "").replace(/[()]/g, "");
-}
+    let second = "X";
 
-function buildPreviewAxisSegment(cb, sp, special) {
-    const specialLetter = normalizeSpecialLetter(special);
-    if (!cb || !sp || !specialLetter) {
-        return "XX/X(X)";
+    if (first === "C" || first === "B") {
+        // First animal is on C/B axis,
+        // so second must come from S/P.
+        if (sp === "S" || sp === "P") {
+            second = sp;
+        }
+    } else if (first === "S" || first === "P") {
+        // First animal is on S/P axis,
+        // so second must come from C/B.
+        if (cb === "C" || cb === "B") {
+            second = cb;
+        }
     }
 
-    if (!['C', 'B'].includes(cb) || !['S', 'P'].includes(sp)) {
-        return "XX/X(X)";
+    // =========================
+    // Last animal in parentheses
+    // =========================
+
+    const last =
+        special
+            ? special.replace(/[()]/g, "")
+            : "X";
+
+    // =========================
+    // Third animal
+    //
+    // Once first, second and last
+    // are known, the remaining
+    // animal is forced.
+    // =========================
+
+    let third = "X";
+
+    if (
+        first !== "X" &&
+        second !== "X" &&
+        last !== "X"
+    ) {
+        const allAnimals = [
+            "C",
+            "S",
+            "P",
+            "B"
+        ];
+
+        const usedAnimals =
+            new Set([
+                first,
+                second,
+                last
+            ]);
+
+        const remaining =
+            allAnimals.filter(
+                animal =>
+                    !usedAnimals.has(animal)
+            );
+
+        if (remaining.length === 1) {
+            third = remaining[0];
+        }
     }
 
-    const oppositeSp = sp === "S" ? "P" : "S";
-    return `${cb}${sp}/${oppositeSp}(${specialLetter})`;
+    return `${first}${second}/${third}(${last})`;
 }
 
 function buildPreviewNumberCode(oneFour, twoThree) {
     if (!oneFour && !twoThree) {
-        return "#X";
+        return "#x";
     }
-    if (oneFour && twoThree) {
-        return buildNumberCode(oneFour, twoThree);
+
+    if (!oneFour) {
+        return twoThree;
     }
-    return oneFour || twoThree || "#X";
+
+    if (!twoThree) {
+        return oneFour;
+    }
+
+    if (oneFour === "#1" && twoThree === "#2") {
+        return "#1";
+    }
+
+    if (oneFour === "#1" && twoThree === "#3") {
+        return "#3";
+    }
+
+    if (oneFour === "#4" && twoThree === "#2") {
+        return "#2";
+    }
+
+    if (oneFour === "#4" && twoThree === "#3") {
+        return "#4";
+    }
+
+    return "#x";
 }
 
 function buildFirstPair(od, fSmS, fDeMDe) {
@@ -697,9 +1136,13 @@ function toggleFolder(folderId) {
 
 function renderProjectsMenu() {
     const menu = document.getElementById("projectsMenu");
-    if (!menu) return;
+
+    if (!menu) {
+        return;
+    }
 
     menu.innerHTML = "";
+
     if (!showProjectsMenu) {
         menu.classList.remove("open");
         return;
@@ -707,169 +1150,670 @@ function renderProjectsMenu() {
 
     menu.classList.add("open");
 
-    const header = document.createElement("div");
-    header.className = "projects-menu-header";
+    const header =
+        document.createElement("div");
 
-    const trashBtn = document.createElement("button");
-    trashBtn.className = "projects-toolbar-btn";
-    trashBtn.textContent = showTrash ? "← Back" : "Trash";
+    header.className =
+        "projects-menu-header";
+
+    const trashBtn =
+        document.createElement("button");
+
+    trashBtn.className =
+        "projects-toolbar-btn";
+
+    trashBtn.textContent =
+        showTrash
+            ? "← Back"
+            : "Trash";
+
     trashBtn.onclick = () => {
         showTrash = !showTrash;
         render();
     };
 
-    const addFolderBtn = document.createElement("button");
-    addFolderBtn.className = "projects-toolbar-btn";
-    addFolderBtn.textContent = "+ Folder";
+    const addFolderBtn =
+        document.createElement("button");
+
+    addFolderBtn.className =
+        "projects-toolbar-btn";
+
+    addFolderBtn.textContent =
+        "+ Folder";
+
     addFolderBtn.onclick = () => {
         addFolder();
     };
 
     header.appendChild(trashBtn);
     header.appendChild(addFolderBtn);
+
     menu.appendChild(header);
 
     if (showTrash) {
-        const trashList = document.createElement("div");
-        trashList.className = "project-group";
+        const trashList =
+            document.createElement("div");
+
+        trashList.className =
+            "project-group";
+
         trash.forEach(entry => {
-            const item = document.createElement("div");
-            item.className = "project-item project-trash-item";
+            const item =
+                document.createElement("div");
+
+            item.className =
+                "project-item project-trash-item";
+
             item.draggable = true;
-            item.ondragstart = () => handleTemplateDragStart(entry.template.id);
+
+            item.ondragstart = () =>
+                handleTemplateDragStart(
+                    entry.template.id
+                );
+
             item.onclick = () => {
-                activeTemplateId = entry.template.id;
+                activeTemplateId =
+                    entry.template.id;
+
                 showProjectsMenu = false;
+
                 saveTemplates();
                 render();
             };
-            const labelContent = document.createElement("div");
-            labelContent.className = "project-item-content";
-            const label = document.createElement("span");
-            label.textContent = entry.template.title || "Untitled";
-            const preview = document.createElement("div");
-            preview.className = "project-item-preview";
-            preview.textContent = getTemplatePreview(entry.template);
+
+            const labelContent =
+                document.createElement("div");
+
+            labelContent.className =
+                "project-item-content";
+
+            const label =
+                document.createElement("span");
+
+            label.textContent =
+                entry.template.title ||
+                "Untitled";
+
+            const preview =
+                document.createElement("div");
+
+            preview.className =
+                "project-item-preview";
+
+            preview.textContent =
+                getTemplatePreview(
+                    entry.template
+                );
+
             labelContent.appendChild(label);
             labelContent.appendChild(preview);
-            const restoreBtn = document.createElement("button");
-            restoreBtn.className = "project-action-btn";
-            restoreBtn.textContent = "Restore";
-            restoreBtn.onclick = (event) => {
+
+            const restoreBtn =
+                document.createElement("button");
+
+            restoreBtn.className =
+                "project-action-btn";
+
+            restoreBtn.textContent =
+                "Restore";
+
+            restoreBtn.onclick = event => {
                 event.stopPropagation();
-                restoreTemplateFromTrash(entry.id);
+
+                restoreTemplateFromTrash(
+                    entry.id
+                );
             };
+
             item.appendChild(labelContent);
             item.appendChild(restoreBtn);
+
             trashList.appendChild(item);
         });
+
         menu.appendChild(trashList);
+
         return;
     }
 
     ensureFolders();
-    folders.forEach(folder => {
-        const group = document.createElement("div");
-        group.className = "project-group";
-        group.ondragover = (event) => event.preventDefault();
-        group.ondrop = () => handleTemplateDrop(folder.id);
 
-        const heading = document.createElement("div");
-        heading.className = "project-group-title";
-        heading.onclick = (event) => {
-            if (event.target.closest("button")) return;
+    folders.forEach(folder => {
+        const group =
+            document.createElement("div");
+
+        group.className =
+            "project-group";
+
+        group.ondragover =
+            event =>
+                event.preventDefault();
+
+        group.ondrop = () =>
+            handleTemplateDrop(
+                folder.id
+            );
+
+        const heading =
+            document.createElement("div");
+
+        heading.className =
+            "project-group-title";
+
+        heading.onclick = event => {
+            if (
+                event.target.closest(
+                    "button"
+                )
+            ) {
+                return;
+            }
+
             toggleFolder(folder.id);
         };
 
-        const toggleBtn = document.createElement("button");
-        toggleBtn.className = "project-action-btn project-folder-toggle";
-        toggleBtn.textContent = folder.open ? "▾" : "▸";
-        toggleBtn.onclick = (event) => {
+        const toggleBtn =
+            document.createElement("button");
+
+        toggleBtn.className =
+            "project-action-btn project-folder-toggle";
+
+        toggleBtn.textContent =
+            folder.open
+                ? "▾"
+                : "▸";
+
+        toggleBtn.onclick = event => {
             event.stopPropagation();
             toggleFolder(folder.id);
         };
 
-        const titleLabel = document.createElement("span");
-        titleLabel.className = "folder-title-label";
-        titleLabel.textContent = folder.title;
+        const titleLabel =
+            document.createElement("span");
+
+        titleLabel.className =
+            "folder-title-label";
+
+        titleLabel.textContent =
+            folder.title;
 
         if (folder.removable) {
-            const renameBtn = document.createElement("button");
-            renameBtn.className = "project-action-btn";
-            renameBtn.textContent = "✎";
+            const renameBtn =
+                document.createElement(
+                    "button"
+                );
+
+            renameBtn.className =
+                "project-action-btn";
+
+            renameBtn.textContent =
+                "✎";
+
             renameBtn.onclick = () => {
-                const nextTitle = prompt("Folder name", folder.title || "");
-                if (nextTitle !== null) renameFolder(folder.id, nextTitle);
+                const nextTitle =
+                    prompt(
+                        "Folder name",
+                        folder.title || ""
+                    );
+
+                if (nextTitle !== null) {
+                    renameFolder(
+                        folder.id,
+                        nextTitle
+                    );
+                }
             };
 
-            const removeBtn = document.createElement("button");
-            removeBtn.className = "project-action-btn";
-            removeBtn.textContent = "×";
-            removeBtn.onclick = () => removeFolder(folder.id);
-            heading.appendChild(renameBtn);
-            heading.appendChild(removeBtn);
+            const removeBtn =
+                document.createElement(
+                    "button"
+                );
+
+            removeBtn.className =
+                "project-action-btn";
+
+            removeBtn.textContent =
+                "×";
+
+            removeBtn.onclick = () =>
+                removeFolder(
+                    folder.id
+                );
+
+            heading.appendChild(
+                renameBtn
+            );
+
+            heading.appendChild(
+                removeBtn
+            );
         }
 
         heading.appendChild(toggleBtn);
         heading.appendChild(titleLabel);
+
         group.appendChild(heading);
 
-        const content = document.createElement("div");
-        content.className = "project-group-items";
+        const content =
+            document.createElement("div");
+
+        content.className =
+            "project-group-items";
+
         if (!folder.open) {
-            content.style.display = "none";
+            content.style.display =
+                "none";
         }
+
         group.appendChild(content);
 
-        const folderTemplates = templates.filter(template => template.folderId === folder.id);
-        folderTemplates.forEach(template => {
-            const item = document.createElement("div");
-            item.className = "project-item";
-            item.draggable = true;
-            item.ondragstart = () => handleTemplateDragStart(template.id);
-            item.ondragover = (event) => event.preventDefault();
-            item.ondrop = () => handleTemplateDrop(folder.id, template.id);
-            item.onclick = () => {
-                activeTemplateId = template.id;
-                showProjectsMenu = false;
-                saveTemplates();
-                render();
-            };
+        const folderTemplates =
+            templates.filter(
+                template =>
+                    template.folderId ===
+                    folder.id
+            );
 
-            const labelContent = document.createElement("div");
-            labelContent.className = "project-item-content";
-            const label = document.createElement("span");
-            label.textContent = template.title || "Untitled";
-            const preview = document.createElement("div");
-            preview.className = "project-item-preview";
-            preview.textContent = getTemplatePreview(template);
-            labelContent.appendChild(label);
-            labelContent.appendChild(preview);
+        folderTemplates.forEach(
+            template => {
+                const item =
+                    document.createElement(
+                        "div"
+                    );
 
-            const actions = document.createElement("div");
-actions.className = "project-item-actions";
+                item.className =
+                    "project-item";
 
+                item.draggable = true;
 
+                item.ondragstart = () =>
+                    handleTemplateDragStart(
+                        template.id
+                    );
 
-const trashBtn = document.createElement("button");
-trashBtn.className = "project-action-btn";
-trashBtn.textContent = "🗑";
+                item.ondragover =
+                    event =>
+                        event.preventDefault();
 
-trashBtn.onclick = (event) => {
-    event.stopPropagation();
-    moveTemplateToTrash(template.id);
-};
+                item.ondrop = () =>
+                    handleTemplateDrop(
+                        folder.id,
+                        template.id
+                    );
 
-actions.appendChild(trashBtn);
+                item.onclick = () => {
+                    activeTemplateId =
+                        template.id;
 
-item.appendChild(labelContent);
-item.appendChild(actions);
-            content.appendChild(item);
-        });
+                    showProjectsMenu =
+                        false;
 
-        group.classList.toggle("collapsed", !folder.open);
+                    saveTemplates();
+                    render();
+                };
+
+                const labelContent =
+                    document.createElement(
+                        "div"
+                    );
+
+                labelContent.className =
+                    "project-item-content";
+
+                const label =
+                    document.createElement(
+                        "span"
+                    );
+
+                label.textContent =
+                    template.title ||
+                    "Untitled";
+
+                const preview =
+                    document.createElement(
+                        "div"
+                    );
+
+                preview.className =
+                    "project-item-preview";
+
+                preview.textContent =
+                    getTemplatePreview(
+                        template
+                    );
+
+                labelContent.appendChild(
+                    label
+                );
+
+                labelContent.appendChild(
+                    preview
+                );
+
+                const actions =
+                    document.createElement(
+                        "div"
+                    );
+
+                actions.className =
+                    "project-item-actions";
+
+                const trashBtn =
+                    document.createElement(
+                        "button"
+                    );
+
+                trashBtn.className =
+                    "project-action-btn";
+
+                trashBtn.textContent =
+                    "🗑";
+
+                trashBtn.onclick =
+                    event => {
+                        event.stopPropagation();
+
+                        moveTemplateToTrash(
+                            template.id
+                        );
+                    };
+
+                actions.appendChild(
+                    trashBtn
+                );
+
+                item.appendChild(
+                    labelContent
+                );
+
+                item.appendChild(
+                    actions
+                );
+
+                content.appendChild(item);
+            }
+        );
+
+        group.classList.toggle(
+            "collapsed",
+            !folder.open
+        );
+
         menu.appendChild(group);
     });
+}
+
+async function renderNotificationsMenu() {
+    const menu =
+        document.getElementById(
+            "notificationsMenu"
+        );
+
+    if (!menu) {
+        return;
+    }
+
+    menu.innerHTML = "";
+
+    if (!showNotificationsMenu) {
+        menu.classList.remove("open");
+        return;
+    }
+
+    menu.classList.add("open");
+
+    menu.innerHTML = `
+        <div class="projects-menu-header">
+            <strong>Notifications</strong>
+        </div>
+
+        <div class="notification-menu-loading">
+            Loading notifications...
+        </div>
+    `;
+
+    const {
+        data: { user }
+    } = await supabaseClient.auth.getUser();
+
+    if (!user) {
+        menu.innerHTML = `
+            <div class="projects-menu-header">
+                <strong>Notifications</strong>
+            </div>
+
+            <div class="notification-empty">
+                Log in to see notifications.
+            </div>
+        `;
+
+        return;
+    }
+
+    const {
+        data: notifications,
+        error
+    } = await supabaseClient
+        .from("notifications")
+        .select("*")
+        .eq("user_id", user.id)
+        .order(
+            "created_at",
+            { ascending: false }
+        );
+
+    if (error) {
+        console.error(
+            "Notification load failed:",
+            error
+        );
+
+        menu.innerHTML = `
+            <div class="projects-menu-header">
+                <strong>Notifications</strong>
+            </div>
+
+            <div class="notification-empty">
+                Unable to load notifications.
+            </div>
+        `;
+
+        return;
+    }
+
+    const notificationRows =
+        notifications || [];
+
+    if (notificationRows.length === 0) {
+        menu.innerHTML = `
+            <div class="projects-menu-header">
+                <strong>Notifications</strong>
+            </div>
+
+            <div class="notification-empty">
+                No notifications yet.
+            </div>
+        `;
+
+        return;
+    }
+
+    const actorIds = [
+        ...new Set(
+            notificationRows
+                .map(
+                    notification =>
+                        notification.actor_id
+                )
+                .filter(Boolean)
+        )
+    ];
+
+    let profileMap = {};
+
+    if (actorIds.length > 0) {
+        const {
+            data: profiles,
+            error: profileError
+        } = await supabaseClient
+            .from("profiles")
+            .select("id, username")
+            .in("id", actorIds);
+
+        if (profileError) {
+            console.error(
+                "Notification profile lookup failed:",
+                profileError
+            );
+        }
+
+        (profiles || []).forEach(
+            profile => {
+                profileMap[profile.id] =
+                    profile.username ||
+                    "Unknown User";
+            }
+        );
+    }
+
+    menu.innerHTML = `
+        <div class="projects-menu-header">
+            <strong>Notifications</strong>
+        </div>
+    `;
+
+    notificationRows.forEach(
+        notification => {
+            const item =
+                document.createElement(
+                    "button"
+                );
+
+            item.type = "button";
+            item.className =
+                "notification-item";
+
+            if (!notification.read) {
+                item.classList.add(
+                    "unread"
+                );
+            }
+
+            const username =
+                profileMap[
+                    notification.actor_id
+                ] ||
+                "Unknown User";
+
+            let message =
+                "You have a new notification.";
+
+            if (
+                notification.type ===
+                "follow"
+            ) {
+                message =
+                    `${username} followed you`;
+            }
+
+            if (
+                notification.type ===
+                "message"
+            ) {
+                message =
+                    `${username} sent you a message`;
+            }
+
+            if (
+                notification.type ===
+                "typing_published"
+            ) {
+                message =
+                    `${username} published a new typing`;
+            }
+
+            const date =
+                notification.created_at
+                    ? new Date(
+                        notification.created_at
+                    ).toLocaleString()
+                    : "";
+
+            item.innerHTML = `
+                <div class="notification-message">
+                    ${escapeHtml(message)}
+                </div>
+
+                ${
+                    date
+                        ? `
+                            <div class="notification-date">
+                                ${escapeHtml(date)}
+                            </div>
+                        `
+                        : ""
+                }
+            `;
+
+            item.addEventListener(
+                "click",
+                async () => {
+                    await supabaseClient
+                        .from("notifications")
+                        .update({
+                            read: true
+                        })
+                        .eq(
+                            "id",
+                            notification.id
+                        )
+                        .eq(
+                            "user_id",
+                            user.id
+                        );
+
+                    if (
+                        notification.type ===
+                            "follow" &&
+                        notification.actor_id
+                    ) {
+                        window.location.href =
+                            `profile.html?user=${encodeURIComponent(
+                                notification.actor_id
+                            )}`;
+
+                        return;
+                    }
+
+                    if (
+                        notification.type ===
+                            "message" &&
+                        notification.conversation_id
+                    ) {
+                        window.location.href =
+                            `messages.html?conversation=${encodeURIComponent(
+                                notification.conversation_id
+                            )}`;
+
+                        return;
+                    }
+
+                    if (
+                        notification.type ===
+                            "typing_published" &&
+                        notification.typing_id
+                    ) {
+                        window.location.href =
+                            `index.html?view=${encodeURIComponent(
+                                notification.typing_id
+                            )}`;
+                    }
+                }
+            );
+
+            menu.appendChild(item);
+        }
+    );
 }
 
 function renderImageGallery(activeTemplate) {
@@ -1132,6 +2076,18 @@ if (viewMode) {
 
     renderProjectsMenu();
 
+    const notificationsMenu =
+    document.getElementById(
+        "notificationsMenu"
+    );
+
+if (notificationsMenu) {
+    notificationsMenu.classList.toggle(
+        "open",
+        showNotificationsMenu
+    );
+}
+
     container.innerHTML = "";
     activeTemplate.coins.forEach(coin => {
         const row = document.createElement("div");
@@ -1161,8 +2117,9 @@ if (viewMode) {
                 const isHalfSelected = typeof sliderState === "number" && ((isLeftCard && sliderState === 1) || (isRightCard && sliderState === 3));
                 const isFullSelected = typeof sliderState === "number" && ((isLeftCard && sliderState === 0) || (isRightCard && sliderState >= 4));
                 const halfDirectionClass = isHalfSelected && isRightCard && sliderState === 3 ? " reverse" : "";
-                const isSelected = selectedValue === option.value;
-                card.className = "option-card" + (isSelected ? " selected" : "") + (isHalfSelected ? " slider-half-selected" : "") + (isFullSelected ? " slider-full-selected" : "") + halfDirectionClass;
+const isSelected =
+    selectedValue === option.value &&
+    !isHalfSelected;                card.className = "option-card" + (isSelected ? " selected" : "") + (isHalfSelected ? " slider-half-selected" : "") + (isFullSelected ? " slider-full-selected" : "") + halfDirectionClass;
                 pairCards.push(card);
 
                 const button = document.createElement("button");
@@ -1180,41 +2137,93 @@ if (viewMode) {
                 };
 
                 const input = document.createElement("input");
-                const leftSideValues = ["O", "Di", "Oi", "N", "F", "fDe", "fS", "#1", "#2", "C", "S"];
-                if (index === 0) {
-                    input.className = "option-definition left-definition";
-                    if (leftSideValues.includes(option.value)) {
-                        input.style.textAlign = "right";
-                        input.style.direction = "rtl";
-                    }
-                } else {
-                    input.className = "option-definition right-definition";
-                }
-                input.addEventListener("click", (e) => {
-input.addEventListener("click", (e) => {
-    if (viewMode) {
-        e.preventDefault();
-        return;
+
+                const leftSideValues = [
+    "O",
+    "Di",
+    "Oi",
+    "N",
+    "F",
+    "fDe",
+    "fS",
+    "#1",
+    "#2",
+    "C",
+    "S"
+];
+
+if (index === 0) {
+    input.className =
+        "option-definition left-definition";
+
+    if (
+        leftSideValues.includes(
+            option.value
+        )
+    ) {
+        // Keep the field visually aligned
+        // toward the coin without reversing
+        // normal typing/caret behavior.
+        input.style.textAlign = "right";
     }
 
-    if (editingLocked) {
-        e.preventDefault();
+} else {
+    input.className =
+        "option-definition right-definition";
+}
 
-        const nextValue =
-            activeTemplate.selections[coin.id] === option.value
-                ? undefined
-                : option.value;
+// English typing should always progress
+// normally from left to right.
+input.style.direction = "ltr";
 
-        setTemplateSelection(activeTemplate, coin, nextValue);
-        saveTemplates();
-        render();
-        return;
+input.addEventListener(
+    "click",
+    (event) => {
+        if (viewMode) {
+            event.preventDefault();
+            return;
+        }
+
+        if (editingLocked) {
+            event.preventDefault();
+
+            const nextValue =
+                activeTemplate
+                    .selections[coin.id] ===
+                option.value
+                    ? undefined
+                    : option.value;
+
+            setTemplateSelection(
+                activeTemplate,
+                coin,
+                nextValue
+            );
+
+            saveTemplates();
+            render();
+            return;
+        }
+
+        // While editing, clicking inside the
+        // definition should only edit text,
+        // not select the surrounding coin.
+        event.stopPropagation();
     }
+);
 
-    e.stopPropagation();
-});
-                    e.stopPropagation();
-                });
+input.addEventListener(
+    "pointerdown",
+    (event) => {
+        if (
+            !editingLocked &&
+            !viewMode
+        ) {
+            event.stopPropagation();
+        }
+    }
+);
+
                 input.placeholder = `Define ${option.label}`;
                 input.value = option.definition || "";
 input.disabled = editingLocked || readOnlyMode || viewMode;input.addEventListener("input", () => {
@@ -1283,7 +2292,11 @@ slider.addEventListener("input", () => {
 
     const nextValue = getSelectionValueFromSlider(coin, slider.value);
   setTemplateSelection(activeTemplate, coin, nextValue);
-saveAll();
+
+  activeTemplate.sliderStates[coin.id] =
+    Number(slider.value);
+
+  saveAll();
 });
             slider.addEventListener("change", () => {
                 render();
@@ -1328,6 +2341,10 @@ const finalizeDragSelection = (marker) => {
     slider.value = String(marker);
     const nextValue = getSelectionValueFromSlider(coin, marker);
     setTemplateSelection(activeTemplate, coin, nextValue);
+    
+    activeTemplate.sliderStates[coin.id] =
+    marker;
+
     saveTemplates();
                 // Always suppress the trailing click fired after pointerup so selection does not get toggled off.
                 suppressClick = true;
@@ -1370,10 +2387,16 @@ const finalizeDragSelection = (marker) => {
             pair.appendChild(pairRow);
             optionGrid.appendChild(pair);
         } else {
-            coin.options.forEach((option) => {
-                const card = document.createElement("div");
-                const isSelected = selectedValue === option.value;
-                card.className = "option-card" + (isSelected ? " selected" : "");
+    coin.options.forEach((option) => {
+        const card =
+            document.createElement("div");
+
+        const isSelected =
+            selectedValue === option.value;
+
+        card.className =
+            "option-card" +
+            (isSelected ? " selected" : "");
 
                 const button = document.createElement("button");
                 button.className = "option-button";
@@ -1417,17 +2440,19 @@ const finalizeDragSelection = (marker) => {
      activeTemplate.saviorState = saviorInput.value;
 saveAll();
     });
-    saviorInput.addEventListener("mousedown", (event) => {
+  saviorInput.addEventListener(
+    "pointerdown",
+    (event) => {
         event.stopPropagation();
-        saviorInput.focus();
-    });
-    saviorInput.addEventListener("touchstart", (event) => {
+    }
+);
+
+saviorInput.addEventListener(
+    "click",
+    (event) => {
         event.stopPropagation();
-        saviorInput.focus();
-    });
-    saviorInput.addEventListener("focus", () => {
-        saviorInput.setSelectionRange(saviorInput.value.length, saviorInput.value.length);
-    });
+    }
+);
     saviorCard.appendChild(saviorLabel);
     saviorCard.appendChild(saviorInput);
 
@@ -1445,17 +2470,19 @@ saveAll();
         activeTemplate.demonState = demonInput.value;
 saveAll();
     });
-    demonInput.addEventListener("mousedown", (event) => {
+demonInput.addEventListener(
+    "pointerdown",
+    (event) => {
         event.stopPropagation();
-        demonInput.focus();
-    });
-    demonInput.addEventListener("touchstart", (event) => {
+    }
+);
+
+demonInput.addEventListener(
+    "click",
+    (event) => {
         event.stopPropagation();
-        demonInput.focus();
-    });
-    demonInput.addEventListener("focus", () => {
-        demonInput.setSelectionRange(demonInput.value.length, demonInput.value.length);
-    });
+    }
+);
     demonCard.appendChild(demonLabel);
     demonCard.appendChild(demonInput);
 
@@ -1494,8 +2521,26 @@ applyTheme();
 
 function wireEvents() {
     const templateTitleInput = document.getElementById("templateTitle");
+    templateTitleInput.addEventListener(
+    "keydown",
+    (event) => {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            templateTitleInput.blur();
+        }
+    }
+);
     const notesArea = document.getElementById("notesArea");
     const bulletBtn = document.getElementById("bulletBtn");
+    if (bulletBtn) {
+    
+    bulletBtn.title = "Bulleted list";
+
+    bulletBtn.setAttribute(
+        "aria-label",
+        "Bulleted list"
+    );
+}
     const newTemplateBtn = document.getElementById("newTemplateBtn");
     const clearBtn = document.getElementById("clearBtn");
 const projectsBtn = document.getElementById("projectsBtn");
@@ -1520,7 +2565,9 @@ const accountStatus = document.getElementById("accountStatus");
 
 if (duplicateTypingBtn) {
 
-    duplicateTypingBtn.addEventListener("click", () => {
+    duplicateTypingBtn.addEventListener(
+    "click",
+    async () => {
 
         if (!viewMode || !viewedTemplate) {
             return;
@@ -1528,23 +2575,108 @@ if (duplicateTypingBtn) {
 
         const copiedTemplate = {
             ...structuredClone(viewedTemplate),
-            id: Date.now().toString(36),
-            title: viewedTemplate.title + " (Copy)"
+
+            id:
+                Date.now().toString(36),
+
+            title:
+                (viewedTemplate.title ||
+                    "Untitled Typing") +
+                " (Copy)",
+
+            publicTypingId: null,
+            publicVisibility: null,
+
+            folderId: "personal",
+            folder: "Personal"
         };
 
         templates.push(copiedTemplate);
 
-        activeTemplateId = copiedTemplate.id;
+        activeTemplateId =
+            copiedTemplate.id;
 
         saveTemplates();
 
-        showSuccess("Typing copied successfully!");
+        const {
+            data: { user },
+            error: userError
+        } = await supabaseClient.auth.getUser();
+
+        if (userError || !user) {
+            console.error(
+                "Copy cloud save user lookup failed:",
+                userError
+            );
+
+            showError(
+                "Copy Failed",
+                "Unable to save the copied typing to your account."
+            );
+
+            return;
+        }
+
+        const cloudSnapshot =
+            structuredClone({
+                templates,
+                folders,
+                trash,
+                editingLocked,
+                darkMode,
+                activeTemplateId,
+                showTrash
+            });
+
+        const { error: cloudError } =
+            await supabaseClient
+                .from("user_data")
+                .upsert(
+                    {
+                        user_id:
+                            user.id,
+
+                        data:
+                            cloudSnapshot,
+
+                        updated_at:
+                            new Date()
+                                .toISOString()
+                    },
+                    {
+                        onConflict:
+                            "user_id"
+                    }
+                );
+
+        if (cloudError) {
+            console.error(
+                "Copied typing cloud save failed:",
+                cloudError
+            );
+
+            showError(
+                "Copy Failed",
+                "The typing was copied locally but could not be saved to your account."
+            );
+
+            return;
+        }
+
+        console.log(
+            "Copied typing saved to cloud."
+        );
+
+        showSuccess(
+            "Typing copied successfully!"
+        );
 
         setTimeout(() => {
-window.location.href = "index.html?copied=1";
-        }, 1500);
-
-    });
+            window.location.href =
+                "index.html?copied=1";
+        }, 800);
+    }
+);
 
 }
 
@@ -1610,6 +2742,23 @@ if (backToDatabaseBtn) {
         accountMenu.classList.toggle("open");
     }
 });
+
+if (notificationsPageBtn) {
+    notificationsPageBtn.addEventListener(
+        "click",
+        async (event) => {
+            event.stopPropagation();
+
+            showNotificationsMenu =
+                !showNotificationsMenu;
+
+            showProjectsMenu = false;
+
+            await renderNotificationsMenu();
+            render();
+        }
+    );
+}
 
 notesArea.addEventListener("input", () => {
     if (viewMode) {
@@ -1689,11 +2838,20 @@ render();
         }
     });
 
-    projectsBtn.addEventListener("click", (event) => {
+    projectsBtn.addEventListener(
+    "click",
+    (event) => {
         event.stopPropagation();
-        showProjectsMenu = !showProjectsMenu;
+
+        showProjectsMenu =
+            !showProjectsMenu;
+
+        showNotificationsMenu =
+            false;
+
         render();
-    });
+    }
+);
 
     databaseBtn.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -1729,12 +2887,15 @@ saveAll();
 render();
     });
 
-publishBtn.addEventListener("click", async () => {
+async function publishTyping(publishVisibility) {
     const activeTemplate = getActiveTemplate();
-    if (!activeTemplate) return;
+
+    if (!activeTemplate) {
+        return;
+    }
 
     const title = (
-        templateTitleInput?.value ||
+        document.getElementById("templateTitle")?.value ||
         activeTemplate.title ||
         "Untitled Typing"
     ).trim();
@@ -1744,115 +2905,678 @@ publishBtn.addEventListener("click", async () => {
     } = await supabaseClient.auth.getUser();
 
     if (!user) {
-        showError("Login Required", "Please log in before publishing.");
+        showError(
+            "Login Required",
+            "Please log in before publishing."
+        );
         return;
     }
 
-    showConfirm("Publish Typing?", async () => {
-        console.log("=== PUBLISH CONFIRM CALLBACK RAN ===");
+    const {
+        data: profile,
+        error: profileError
+    } = await supabaseClient
+        .from("profiles")
+        .select("username")
+        .eq("id", user.id)
+        .single();
 
-        const { data: profile, error: profileError } = await supabaseClient
-            .from("profiles")
-            .select("username")
-            .eq("id", user.id)
-            .single();
+    if (profileError || !profile) {
+        console.error(
+            "Profile load failed:",
+            profileError
+        );
 
-        if (profileError || !profile) {
-            console.error("Profile load failed:", profileError);
-            showError("Publish Failed", "Unable to load your profile.");
+        showError(
+            "Publish Failed",
+            "Unable to load your profile."
+        );
+
+        return;
+    }
+
+const typingData = structuredClone({
+    notes: activeTemplate.notes || "",
+    selections: activeTemplate.selections || {},
+    sliderStates: activeTemplate.sliderStates || {},
+    saviorState: activeTemplate.saviorState || "",
+    demonState: activeTemplate.demonState || "",
+    images: activeTemplate.images || [],
+    coins: activeTemplate.coins || []
+});
+
+    const revealedType =
+        buildTypeLabel(
+            activeTemplate.selections || {}
+        );
+
+    let publishedId =
+        activeTemplate.publicTypingId || null;
+
+    if (publishedId) {
+        const {
+            data: existingPublication,
+            error: lookupError
+        } = await supabaseClient
+            .from("public_typings")
+            .select("id, user_id")
+            .eq("id", publishedId)
+            .maybeSingle();
+
+        if (lookupError) {
+            console.error(
+                "Publication lookup failed:",
+                lookupError
+            );
+
+            showError(
+                "Publish Failed",
+                lookupError.message
+            );
+
             return;
         }
 
-        const typingData = {
-            notes: activeTemplate.notes || "",
-            selections: activeTemplate.selections || {},
-            sliderStates: activeTemplate.sliderStates || {},
-            saviorState: activeTemplate.saviorState || "",
-            demonState: activeTemplate.demonState || "",
-            images: activeTemplate.images || [],
-            coins: activeTemplate.coins || []
-        };
+        if (
+            !existingPublication ||
+            existingPublication.user_id !== user.id
+        ) {
+            console.log(
+                "Old publication no longer exists. Creating new one."
+            );
 
-        let publishedId = activeTemplate.publicTypingId || null;
+            publishedId = null;
+        }
+    }
 
-        if (publishedId) {
-            const { data: existingPublication, error: lookupError } =
-                await supabaseClient
-                    .from("public_typings")
-                    .select("id, user_id")
-                    .eq("id", publishedId)
-                    .maybeSingle();
+    let createdNewPublication = false;
 
-            if (lookupError) {
-                console.error("Publication lookup failed:", lookupError);
-                showError("Publish Failed", lookupError.message);
-                return;
-            }
+    if (publishedId) {
+        const { error } = await supabaseClient
+            .from("public_typings")
+            .update({
+                username: profile.username,
+                title: title,
+                data: typingData,
+                revealed_type:
+                    revealedType || null,
+                visibility:
+                    publishVisibility,
+                updated_at:
+                    new Date().toISOString()
+            })
+            .eq("id", publishedId)
+            .eq("user_id", user.id);
 
-            if (!existingPublication || existingPublication.user_id !== user.id) {
-                console.log("Old publication no longer exists. Creating new one.");
-                publishedId = null;
-            }
+        if (error) {
+            console.error(
+                "Publish update failed:",
+                error
+            );
+
+            showError(
+                "Publish Failed",
+                error.message
+            );
+
+            return;
         }
 
-        if (publishedId) {
-            const { error } = await supabaseClient
-                .from("public_typings")
-                .update({
-                    username: profile.username,
-                    title: title,
-                    data: typingData,
-                    updated_at: new Date().toISOString()
-                })
-                .eq("id", publishedId)
-                .eq("user_id", user.id);
+        console.log(
+            "Publication updated:",
+            publishedId
+        );
 
-            if (error) {
-                console.error("Publish update failed:", error);
-                showError("Publish Failed", error.message);
-                return;
-            }
+    } else {
+        const {
+            data: publishedData,
+            error
+        } = await supabaseClient
+            .from("public_typings")
+            .insert([{
+                user_id: user.id,
+                username: profile.username,
+                title: title,
+                possibilities: null,
+                revealed_type:
+                    revealedType || null,
+                visibility:
+                    publishVisibility,
+                data: typingData
+            }])
+            .select("id")
+            .single();
 
-            console.log("Publication updated:", publishedId);
+        if (error || !publishedData) {
+            console.error(
+                "Publish insert failed:",
+                error
+            );
 
-        } else {
-            const { data: publishedData, error } = await supabaseClient
-                .from("public_typings")
-                .insert([{
-                    user_id: user.id,
-                    username: profile.username,
-                    title: title,
-                    possibilities: null,
-                    revealed_type: null,
-                    data: typingData
-                }])
-                .select("id")
-                .single();
+            showError(
+                "Publish Failed",
+                error?.message ||
+                    "No publication ID returned."
+            );
 
-            if (error || !publishedData) {
-                console.error("Publish insert failed:", error);
-                showError(
-                    "Publish Failed",
-                    error?.message || "No publication ID returned."
+            return;
+        }
+
+        publishedId =
+            publishedData.id;
+
+        createdNewPublication = true;
+
+        console.log(
+            "New publication created:",
+            publishedId
+        );
+    }
+
+    // Only notify subscribers for a genuinely new publication.
+    if (createdNewPublication) {
+        const {
+            data: subscribers,
+            error: subscribersError
+        } = await supabaseClient
+            .from(
+                "typing_notification_subscriptions"
+            )
+            .select("subscriber_id")
+            .eq("creator_id", user.id);
+
+        if (subscribersError) {
+            console.error(
+                "Typing notification subscriber lookup failed:",
+                subscribersError
+            );
+
+        } else if (subscribers?.length) {
+
+            for (
+                const subscription
+                of subscribers
+            ) {
+                const subscriberId =
+                    subscription.subscriber_id;
+
+                const {
+                    data: usersBlocked,
+                    error: blockCheckError
+                } = await supabaseClient.rpc(
+                    "users_are_blocked",
+                    {
+                        user_a: user.id,
+                        user_b: subscriberId
+                    }
                 );
-                return;
+
+                if (blockCheckError) {
+                    console.error(
+                        "Publish notification block check failed:",
+                        blockCheckError
+                    );
+
+                    continue;
+                }
+
+                if (usersBlocked) {
+                    continue;
+                }
+
+                const {
+                    data: isMuted,
+                    error: muteCheckError
+                } = await supabaseClient.rpc(
+                    "has_muted",
+                    {
+                        recipient_id:
+                            subscriberId,
+                        actor_id:
+                            user.id
+                    }
+                );
+
+                if (muteCheckError) {
+                    console.error(
+                        "Publish notification mute check failed:",
+                        muteCheckError
+                    );
+
+                    continue;
+                }
+
+                if (isMuted) {
+                    continue;
+                }
+
+                const {
+                    error: notificationError
+                } = await supabaseClient
+                    .from("notifications")
+                    .insert({
+                        user_id:
+                            subscriberId,
+                        actor_id:
+                            user.id,
+                        type:
+                            "typing_published",
+                        typing_id:
+                            publishedId,
+                        read: false
+                    });
+
+                if (notificationError) {
+                    console.error(
+                        "Publish notification creation failed:",
+                        notificationError
+                    );
+                }
             }
-
-            publishedId = publishedData.id;
-
-            console.log("New publication created:", publishedId);
         }
+    }
 
-            activeTemplate.publicTypingId = publishedId;
+    activeTemplate.publicTypingId =
+        publishedId;
+
+        activeTemplate.publicVisibility =
+    publishVisibility;
 
     saveAll();
 
-    console.log("Publish successful:", publishedId);
-    showSuccess("Typing Published");
-});
-});  // closes publishBtn.addEventListener
+    console.log(
+        "Publish successful:",
+        publishedId
+    );
 
-}      // closes wireEvents()
+    const wasUpdate =
+    !createdNewPublication;
+
+   showSuccess(
+    wasUpdate
+        ? (
+            publishVisibility === "unlisted"
+                ? "Typing Updated Unlisted"
+                : "Typing Updated"
+        )
+        : (
+            publishVisibility === "unlisted"
+                ? "Typing Published Unlisted"
+                : "Typing Published"
+        )
+);
+
+}
+
+publishBtn.addEventListener(
+    "click",
+    async () => {
+        const activeTemplate =
+            getActiveTemplate();
+
+        if (!activeTemplate) {
+            return;
+        }
+
+        const {
+            data: { user }
+        } = await supabaseClient.auth.getUser();
+
+        if (!user) {
+            showError(
+                "Login Required",
+                "Please log in before publishing."
+            );
+
+            return;
+        }
+
+        const isUpdate =
+    Boolean(activeTemplate.publicTypingId);
+
+showPopup(
+    isUpdate
+        ? "Update Typing"
+        : "Publish Typing",
+
+    isUpdate
+        ? "Choose how you want to update this published typing."
+        : "Choose who can see this published typing.",
+
+    [
+        {
+            text: "Cancel"
+        },
+        {
+            text: isUpdate
+                ? "Update Unlisted"
+                : "Unlisted",
+
+            action: async () => {
+                await publishTyping(
+                    "unlisted"
+                );
+            }
+        },
+        {
+            text: isUpdate
+                ? "Update Public"
+                : "Public",
+
+            action: async () => {
+                await publishTyping(
+                    "public"
+                );
+            }
+        }
+    ]
+);
+    }
+);
+
+} // closes wireEvents()
+
+async function openTypingAccessManager() {
+    const activeTemplate = getActiveTemplate();
+
+    if (!activeTemplate?.publicTypingId) {
+        showError(
+            "No Published Typing",
+            "Publish this typing as Unlisted first."
+        );
+        return;
+    }
+
+    const {
+        data: { user }
+    } = await supabaseClient.auth.getUser();
+
+    if (!user) {
+        showError(
+            "Login Required",
+            "Please log in first."
+        );
+        return;
+    }
+
+    const typingId =
+        activeTemplate.publicTypingId;
+
+    const {
+        data: profiles,
+        error: profilesError
+    } = await supabaseClient
+        .from("profiles")
+        .select("id, username")
+        .neq("id", user.id)
+        .order("username", {
+            ascending: true
+        });
+
+    if (profilesError) {
+        console.error(
+            "Profile lookup failed:",
+            profilesError
+        );
+
+        showError(
+            "Unable to Load Users",
+            profilesError.message
+        );
+
+        return;
+    }
+
+    const {
+        data: accessRows,
+        error: accessError
+    } = await supabaseClient
+        .from("public_typing_access")
+        .select("viewer_id")
+        .eq("typing_id", typingId);
+
+    if (accessError) {
+        console.error(
+            "Access lookup failed:",
+            accessError
+        );
+
+        showError(
+            "Unable to Load Access",
+            accessError.message
+        );
+
+        return;
+    }
+
+    const selectedIds =
+        new Set(
+            (accessRows || []).map(
+                row => row.viewer_id
+            )
+        );
+
+    const overlay =
+        document.createElement("div");
+
+    overlay.className =
+        "typing-access-overlay";
+
+    overlay.innerHTML = `
+        <div class="typing-access-modal">
+
+            <div class="typing-access-header">
+                <h2>Manage Access</h2>
+
+                <button
+                    type="button"
+                    id="closeTypingAccessBtn">
+                    ✕
+                </button>
+            </div>
+
+            <input
+                id="typingAccessSearch"
+                type="text"
+                placeholder="Search users...">
+
+            <div
+                id="typingAccessUsers"
+                class="typing-access-users">
+            </div>
+
+            <div class="typing-access-actions">
+                <button
+                    type="button"
+                    id="saveTypingAccessBtn">
+                    Save Access
+                </button>
+            </div>
+
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const usersContainer =
+        overlay.querySelector(
+            "#typingAccessUsers"
+        );
+
+    const searchInput =
+        overlay.querySelector(
+            "#typingAccessSearch"
+        );
+
+    const closeBtn =
+        overlay.querySelector(
+            "#closeTypingAccessBtn"
+        );
+
+    const saveBtn =
+        overlay.querySelector(
+            "#saveTypingAccessBtn"
+        );
+
+    function renderUsers(search = "") {
+        usersContainer.innerHTML = "";
+
+        const normalizedSearch =
+            search.trim().toLowerCase();
+
+        const filteredProfiles =
+            (profiles || []).filter(profile => {
+                const username =
+                    (
+                        profile.username ||
+                        "Unknown User"
+                    ).toLowerCase();
+
+                return username.includes(
+                    normalizedSearch
+                );
+            });
+
+        if (filteredProfiles.length === 0) {
+            usersContainer.innerHTML = `
+                <div>
+                    No users found.
+                </div>
+            `;
+
+            return;
+        }
+
+        filteredProfiles.forEach(profile => {
+            const row =
+                document.createElement("label");
+
+            row.className =
+                "typing-access-user";
+
+            const username =
+                profile.username ||
+                "Unknown User";
+
+            row.innerHTML = `
+                <input
+                    type="checkbox"
+                    value="${escapeHtml(
+                        profile.id
+                    )}"
+                    ${
+                        selectedIds.has(profile.id)
+                            ? "checked"
+                            : ""
+                    }>
+
+                <span>
+                    ${escapeHtml(username)}
+                </span>
+            `;
+
+            usersContainer.appendChild(row);
+        });
+    }
+
+    renderUsers();
+
+    searchInput.addEventListener(
+        "input",
+        () => {
+            renderUsers(
+                searchInput.value
+            );
+        }
+    );
+
+    closeBtn.addEventListener(
+        "click",
+        () => {
+            overlay.remove();
+        }
+    );
+
+    overlay.addEventListener(
+        "click",
+        event => {
+            if (event.target === overlay) {
+                overlay.remove();
+            }
+        }
+    );
+
+    saveBtn.addEventListener(
+        "click",
+        async () => {
+
+            saveBtn.disabled = true;
+
+            const checkedIds =
+                Array.from(
+                    usersContainer.querySelectorAll(
+                        'input[type="checkbox"]:checked'
+                    )
+                ).map(
+                    checkbox =>
+                        checkbox.value
+                );
+
+            const {
+                error: deleteError
+            } = await supabaseClient
+                .from("public_typing_access")
+                .delete()
+                .eq(
+                    "typing_id",
+                    typingId
+                );
+
+            if (deleteError) {
+                console.error(
+                    "Access reset failed:",
+                    deleteError
+                );
+
+                saveBtn.disabled = false;
+                return;
+            }
+
+            if (checkedIds.length > 0) {
+
+                const rows =
+                    checkedIds.map(
+                        viewerId => ({
+                            typing_id: typingId,
+                            viewer_id: viewerId
+                        })
+                    );
+
+                const {
+                    error: insertError
+                } = await supabaseClient
+                    .from("public_typing_access")
+                    .insert(rows);
+
+                if (insertError) {
+                    console.error(
+                        "Access save failed:",
+                        insertError
+                    );
+
+                    saveBtn.disabled = false;
+                    return;
+                }
+            }
+
+            overlay.remove();
+
+            showSuccess(
+                "Unlisted access updated"
+            );
+        }
+    );
+}
 
 async function init() {
     
@@ -1983,11 +3707,17 @@ async function checkViewMode() {
 
     viewMode = true;
 
-    const { data, error } = await supabaseClient
-        .from("public_typings")
-        .select("*")
-        .eq("id", typingId)
-        .single();
+    const {
+    data,
+    error
+} = await supabaseClient
+    .rpc(
+        "get_visible_typing",
+        {
+            requested_id: typingId
+        }
+    )
+    .maybeSingle();
 
     if (error || !data) {
         showError("Unable to Load", "This typing could not be found.");

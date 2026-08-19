@@ -19,10 +19,13 @@
             👁 Viewing Published Typing
         </span>
 
-        <input id="templateTitle"
-               class="title-input"
-               type="text"
-               placeholder="Title">
+<textarea
+    id="templateTitle"
+    class="title-input"
+    placeholder="Title"
+    rows="1"
+    spellcheck="true"
+></textarea>
 
     </div>
 
@@ -32,8 +35,9 @@
         <button id="themeBtn" type="button">Dark</button>
         <button id="lockBtn" type="button">Lock</button>
         <button id="databaseBtn" type="button">Database</button>
-        <button id="publishBtn" type="button">Publish</button>
-        <button id="newTemplateBtn" type="button">New</button>
+       <button id="publishBtn" type="button">Publish</button>
+
+<button id="newTemplateBtn" type="button">New</button>
 
         <button id="backToDatabaseBtn" type="button" style="display: none;">
             ← Back to Database
@@ -44,13 +48,28 @@
         </button>
 
         <button id="projectsBtn" type="button">Saved Typings</button>
-        <button id="accountBtn" type="button">Account</button>
+<button
+    id="notificationsPageBtn"
+    type="button"
+    aria-label="Notifications"
+    title="Notifications"
+>
+    🔔
+</button>
+
+<button id="accountBtn" type="button">Account</button>
 
     </div>
 
 </header>
 
     <div id="projectsMenu" class="projects-menu"></div>
+
+    <div
+    id="notificationsMenu"
+    class="projects-menu">
+</div>
+
 <div id="accountMenu" class="account-menu">
     <div><strong>Account</strong></div>
 
