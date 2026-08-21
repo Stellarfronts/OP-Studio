@@ -1,5 +1,11 @@
 console.log("OP Studio loaded!");
 
+const YOUTUBE_API_KEY =
+    "AIzaSyBDeYcjaeUKUhfKTA8SUo7Oy_1THBYR6z4";
+
+const YOUTUBE_CLIENT_ID =
+    "383277074386-90dvsvguvuukdg1ug72fmmm202kfg63b.apps.googleusercontent.com";
+
 const DEFAULT_COIN_DEFS = [
     { id: "od", label: "O / D", options: [{ value: "O", label: "O" }, { value: "D", label: "D" }] },
     { id: "diDe", label: "Di / De", options: [{ value: "Di", label: "Di" }, { value: "De", label: "De" }] },
@@ -31,6 +37,15 @@ let trash = [];
 let draggingTemplateId = null;
 let cloudSaveQueue =
     Promise.resolve();
+    let cloudSaveTimer = null;
+let cloudSavePending = false;
+let youtubeAccessToken =
+    sessionStorage.getItem(
+        "opsYouTubeAccessToken"
+    ) || null;
+let youtubeTokenClient = null;
+let youtubePlayer = null;
+let youtubeProgressTimer = null;
 
 const notificationsPageBtn =
     document.getElementById("notificationsPageBtn");
@@ -358,9 +373,46 @@ function saveTemplatesToCloud() {
     return cloudSaveQueue;
 }
 
+function scheduleCloudSave() {
+    if (readOnlyMode || viewMode) {
+        return;
+    }
+
+    cloudSavePending = true;
+
+    if (cloudSaveTimer) {
+        clearTimeout(cloudSaveTimer);
+    }
+
+    cloudSaveTimer = setTimeout(
+        async () => {
+            cloudSaveTimer = null;
+            cloudSavePending = false;
+
+            await saveTemplatesToCloud();
+        },
+        25
+    );
+}
+
 function saveAll() {
+    // Browser storage updates immediately.
     saveTemplates();
-    saveTemplatesToCloud();
+
+    // Supabase receives the newest state
+    // after editing pauses briefly.
+    scheduleCloudSave();
+}
+
+async function flushCloudSave() {
+    if (cloudSaveTimer) {
+        clearTimeout(cloudSaveTimer);
+        cloudSaveTimer = null;
+    }
+
+    cloudSavePending = false;
+
+    await saveTemplatesToCloud();
 }
 
 function loadTemplates() {
@@ -1918,7 +1970,7 @@ function renderImageGallery(activeTemplate) {
             const temp = activeTemplate.images[index];
             activeTemplate.images[index] = activeTemplate.images[targetIndex];
             activeTemplate.images[targetIndex] = temp;
-            saveTemplates();
+            saveAll();
             render();
             return true;
         };
@@ -1950,7 +2002,7 @@ function renderImageGallery(activeTemplate) {
                 activeTemplate.images[index].size = nextWidth;
                 activeTemplate.images[index].height = nextHeight;
                 activeTemplate.images[index].aspectRatio = baseRatio;
-                saveTemplates();
+                saveAll();
                 return;
             }
             card.style.top = `${event.clientY - offsetY}px`;
@@ -1998,7 +2050,7 @@ function renderImageGallery(activeTemplate) {
                 activeTemplate.images[index].size = nextWidth;
                 activeTemplate.images[index].height = nextHeight;
                 activeTemplate.images[index].aspectRatio = baseRatio;
-                saveTemplates();
+                saveAll();
                 return;
             }
             card.style.left = "0px";
@@ -2016,7 +2068,7 @@ function renderImageGallery(activeTemplate) {
             const shouldDelete = window.confirm("Delete this image?");
             if (shouldDelete) {
                 activeTemplate.images.splice(index, 1);
-                saveTemplates();
+                saveAll();
                 render();
             }
         });
@@ -2132,7 +2184,7 @@ const isSelected =
                     }
                     const nextValue = activeTemplate.selections[coin.id] === option.value ? undefined : option.value;
                     setTemplateSelection(activeTemplate, coin, nextValue);
-                    saveTemplates();
+                    saveAll();
                     render();
                 };
 
@@ -2200,7 +2252,7 @@ input.addEventListener(
                 nextValue
             );
 
-            saveTemplates();
+            saveAll();
             render();
             return;
         }
@@ -2345,7 +2397,7 @@ const finalizeDragSelection = (marker) => {
     activeTemplate.sliderStates[coin.id] =
     marker;
 
-    saveTemplates();
+    saveAll();
                 // Always suppress the trailing click fired after pointerup so selection does not get toggled off.
                 suppressClick = true;
                 render();
@@ -2404,14 +2456,14 @@ const finalizeDragSelection = (marker) => {
                 button.onclick = () => {
                     const nextValue = activeTemplate.selections[coin.id] === option.value ? undefined : option.value;
                     setTemplateSelection(activeTemplate, coin, nextValue);
-                    saveTemplates();
+                    saveAll();
                     render();
                 };
 
                 card.onclick = () => {
                     const nextValue = activeTemplate.selections[coin.id] === option.value ? undefined : option.value;
                     setTemplateSelection(activeTemplate, coin, nextValue);
-                    saveTemplates();
+                    saveAll();
                     render();
                 };
                 card.appendChild(button);
@@ -2768,7 +2820,7 @@ notesArea.addEventListener("input", () => {
     const activeTemplate = getActiveTemplate();
     if (activeTemplate) {
         activeTemplate.notes = notesArea.value;
-        saveTemplates();
+        saveAll();
     }
 });
 
@@ -2820,7 +2872,7 @@ saveAll();
         const activeTemplate = getActiveTemplate();
         if (activeTemplate) {
             activeTemplate.notes = nextValue;
-            saveTemplates();
+saveAll();
         }
     });
 
@@ -3182,7 +3234,8 @@ const typingData = structuredClone({
         activeTemplate.publicVisibility =
     publishVisibility;
 
-    saveAll();
+    saveTemplates();
+await flushCloudSave();
 
     console.log(
         "Publish successful:",
@@ -3592,6 +3645,33 @@ loadTemplates();
 
 await checkViewMode();
 
+/*
+    Before the page becomes editable,
+    resolve the logged-in cloud state.
+*/
+if (!viewMode) {
+    const {
+        data: { user }
+    } = await supabaseClient.auth.getUser();
+
+    if (user) {
+        console.log(
+            "Logged-in user detected. Loading cloud data before editing..."
+        );
+
+        const cloudLoaded =
+            await loadTemplatesFromCloud();
+
+        if (!cloudLoaded) {
+            console.log(
+                "No cloud data found. Saving local typings to cloud..."
+            );
+
+            await saveTemplatesToCloud();
+        }
+    }
+}
+
 wireEvents();
 
 render();
@@ -3599,6 +3679,975 @@ render();
     const imageUploadArea = document.getElementById("imageUploadArea");
     const imageFileInput = document.getElementById("imageFileInput");
     const addImageBtn = document.getElementById("addImageBtn");
+const youtubeBrowseBtn =
+    document.getElementById("youtubeBrowseBtn");
+
+const youtubeBrowsePanel =
+    document.getElementById("youtubeBrowsePanel");
+
+const youtubeBrowseCloseBtn =
+    document.getElementById("youtubeBrowseCloseBtn");
+
+    const youtubeIframe =
+    document.getElementById("youtubeIframe");
+
+    const savedYouTubeVideoId =
+    localStorage.getItem(
+        "opsLastYouTubeVideoId"
+    );
+
+const savedYouTubeTime =
+    Number(
+        localStorage.getItem(
+            "opsLastYouTubeTime"
+        )
+    ) || 0;
+
+if (
+    savedYouTubeVideoId &&
+    youtubeIframe
+) {
+    youtubeIframe.src =
+        `https://www.youtube.com/embed/${encodeURIComponent(
+            savedYouTubeVideoId
+        )}?enablejsapi=1&start=${Math.floor(
+            savedYouTubeTime
+        )}`;
+}
+
+function attachYouTubePlayerTracking() {
+    if (
+        !youtubeIframe ||
+        typeof YT === "undefined" ||
+        !YT.Player
+    ) {
+        return;
+    }
+
+    if (youtubePlayer) {
+        return;
+    }
+
+    youtubePlayer =
+        new YT.Player(
+            youtubeIframe,
+            {
+                events: {
+                    onReady: () => {
+                        startYouTubeProgressTracking();
+                    },
+
+                    onStateChange: event => {
+                        if (
+                            event.data ===
+                            YT.PlayerState.PLAYING
+                        ) {
+                            startYouTubeProgressTracking();
+                        }
+
+                        if (
+                            event.data ===
+                                YT.PlayerState.PAUSED ||
+                            event.data ===
+                                YT.PlayerState.ENDED
+                        ) {
+                            saveYouTubeProgress();
+                        }
+
+                        if (
+                            event.data ===
+                            YT.PlayerState.ENDED
+                        ) {
+                            localStorage.setItem(
+                                "opsLastYouTubeTime",
+                                "0"
+                            );
+                        }
+                    }
+                }
+            }
+        );
+}
+
+function saveYouTubeProgress() {
+    if (
+        !youtubePlayer ||
+        typeof youtubePlayer.getCurrentTime !==
+            "function"
+    ) {
+        return;
+    }
+
+    try {
+        const currentTime =
+            youtubePlayer.getCurrentTime();
+
+        if (Number.isFinite(currentTime)) {
+            localStorage.setItem(
+                "opsLastYouTubeTime",
+                String(
+                    Math.floor(currentTime)
+                )
+            );
+        }
+    } catch (error) {
+        console.warn(
+            "Unable to save YouTube position:",
+            error
+        );
+    }
+}
+
+function startYouTubeProgressTracking() {
+    if (youtubeProgressTimer) {
+        return;
+    }
+
+    youtubeProgressTimer =
+        setInterval(
+            () => {
+                saveYouTubeProgress();
+            },
+            3000
+        );
+}
+
+// ALSO PASTE THIS PART HERE:
+if (
+    typeof YT !== "undefined" &&
+    YT.Player
+) {
+    attachYouTubePlayerTracking();
+} else {
+    window.onYouTubeIframeAPIReady =
+        () => {
+            attachYouTubePlayerTracking();
+        };
+}
+
+const youtubeSearchInput =
+    document.getElementById("youtubeSearchInput");
+
+    const youtubeAccountBtn =
+    document.getElementById(
+        "youtubeAccountBtn"
+    );
+if (
+    youtubeAccessToken &&
+    youtubeAccountBtn
+) {
+    youtubeAccountBtn.textContent = "✓";
+    youtubeAccountBtn.title =
+        "YouTube connected";
+}
+
+    if (
+    typeof google !== "undefined" &&
+    google.accounts?.oauth2
+) {
+    youtubeTokenClient =
+        google.accounts.oauth2.initTokenClient({
+            client_id:
+                YOUTUBE_CLIENT_ID,
+
+            scope:
+                "https://www.googleapis.com/auth/youtube.readonly",
+
+            callback: async response => {
+
+                if (
+                    !response ||
+                    !response.access_token
+                ) {
+                    console.error(
+                        "YouTube authorization failed:",
+                        response
+                    );
+
+                    return;
+                }
+
+                youtubeAccessToken =
+    response.access_token;
+
+                sessionStorage.setItem(
+    "opsYouTubeAccessToken",
+    youtubeAccessToken
+);
+
+                console.log(
+                    "YouTube account connected."
+                );
+
+                if (youtubeAccountBtn) {
+                    youtubeAccountBtn.textContent =
+                        "✓";
+                    youtubeAccountBtn.title =
+                        "YouTube connected";
+                }
+
+                await loadYouTubeAccount();
+            }
+        });
+}
+
+if (
+    youtubeAccountBtn &&
+    youtubeTokenClient
+) {
+    youtubeAccountBtn.addEventListener(
+        "click",
+        () => {
+            youtubeTokenClient
+                .requestAccessToken();
+        }
+    );
+}
+
+    if (
+    youtubeBrowseBtn &&
+    youtubeBrowsePanel
+) {
+    youtubeBrowseBtn.addEventListener(
+        "click",
+        () => {
+            youtubeBrowsePanel.classList.add(
+                "open"
+            );
+        }
+    );
+}
+
+if (
+    youtubeBrowseCloseBtn &&
+    youtubeBrowsePanel
+) {
+    youtubeBrowseCloseBtn.addEventListener(
+        "click",
+        () => {
+            youtubeBrowsePanel.classList.remove(
+                "open"
+            );
+        }
+    );
+}
+
+const youtubeResultItems =
+    document.querySelectorAll(
+        ".youtube-result-item"
+    );
+
+youtubeResultItems.forEach(
+    item => {
+        item.addEventListener(
+            "click",
+            () => {
+                const videoId =
+                    item.dataset.videoId;
+
+                if (
+                    !videoId ||
+                    !youtubeIframe
+                ) {
+                    return;
+                }
+
+                localStorage.setItem(
+    "opsLastYouTubeVideoId",
+    videoId
+);
+
+localStorage.setItem(
+    "opsLastYouTubeTime",
+    "0"
+);
+
+youtubeIframe.src =
+                    `https://www.youtube.com/embed/${encodeURIComponent(
+                        videoId
+                    )}?enablejsapi=1&autoplay=1`;
+
+                if (youtubeBrowsePanel) {
+                    youtubeBrowsePanel.classList.remove(
+                        "open"
+                    );
+                }
+            }
+        );
+    }
+);
+
+let youtubeSearchTimer = null;
+
+function getYouTubeVideoId(value) {
+    const text =
+        String(value || "").trim();
+
+    if (!text) {
+        return null;
+    }
+
+    try {
+        const url = new URL(text);
+
+        // youtu.be/VIDEO_ID
+        if (
+            url.hostname === "youtu.be" ||
+            url.hostname === "www.youtu.be"
+        ) {
+            return url.pathname
+                .split("/")
+                .filter(Boolean)[0] || null;
+        }
+
+        if (
+            url.hostname === "youtube.com" ||
+            url.hostname === "www.youtube.com" ||
+            url.hostname === "m.youtube.com"
+        ) {
+            // youtube.com/watch?v=VIDEO_ID
+            if (url.pathname === "/watch") {
+                return url.searchParams.get("v");
+            }
+
+            // youtube.com/shorts/VIDEO_ID
+            if (
+                url.pathname.startsWith(
+                    "/shorts/"
+                )
+            ) {
+                return url.pathname
+                    .split("/")[2] || null;
+            }
+
+            // youtube.com/embed/VIDEO_ID
+            if (
+                url.pathname.startsWith(
+                    "/embed/"
+                )
+            ) {
+                return url.pathname
+                    .split("/")[2] || null;
+            }
+
+            // youtube.com/live/VIDEO_ID
+            if (
+                url.pathname.startsWith(
+                    "/live/"
+                )
+            ) {
+                return url.pathname
+                    .split("/")[2] || null;
+            }
+        }
+    } catch (error) {
+        // It isn't a URL, so normal
+        // YouTube search can handle it.
+    }
+
+    return null;
+}
+
+async function loadYouTubeAccount() {
+
+    if (!youtubeAccessToken) {
+        return;
+    }
+
+    const resultsContainer =
+        document.querySelector(
+            ".youtube-browse-results"
+        );
+
+    if (!resultsContainer) {
+        return;
+    }
+
+    resultsContainer.innerHTML =
+        `<div class="youtube-search-status">
+            Loading your YouTube...
+        </div>`;
+
+    try {
+
+        const response =
+            await fetch(
+                "https://www.googleapis.com/youtube/v3/subscriptions" +
+                "?part=snippet" +
+                "&mine=true" +
+                "&maxResults=20",
+                {
+                    headers: {
+                        Authorization:
+                            `Bearer ${youtubeAccessToken}`
+                    }
+                }
+            );
+
+        const data =
+            await response.json();
+
+        if (!response.ok) {
+            console.error(
+                "YouTube account load failed:",
+                data
+            );
+
+            resultsContainer.innerHTML =
+                `<div class="youtube-search-status">
+                    Unable to load YouTube account.
+                </div>`;
+
+            return;
+        }
+
+        resultsContainer.innerHTML = "";
+
+        (data.items || []).forEach(
+            subscription => {
+
+                const snippet =
+                    subscription.snippet || {};
+
+                const channelId =
+                    snippet.resourceId?.channelId;
+
+                const item =
+                    document.createElement(
+                        "button"
+                    );
+
+                item.type = "button";
+                item.className =
+                    "youtube-result-item";
+
+                const thumbnail =
+                    snippet.thumbnails
+                        ?.medium?.url ||
+                    snippet.thumbnails
+                        ?.default?.url ||
+                    "";
+
+                item.innerHTML = `
+                    <img
+                        class="youtube-result-thumb"
+                        src="${thumbnail}"
+                        alt=""
+                    >
+
+                    <div class="youtube-result-text">
+                        <strong></strong>
+                        <span>Subscription</span>
+                    </div>
+                `;
+
+                item.querySelector(
+    "strong"
+).textContent =
+    snippet.title ||
+    "YouTube channel";
+
+item.dataset.channelId =
+    channelId || "";
+
+item.onclick = async () => {
+    console.log(
+        "YouTube subscription clicked:",
+        snippet.title,
+        channelId
+    );
+
+    if (!channelId) {
+        console.error(
+            "Subscription has no channel ID:",
+            subscription
+        );
+        return;
+    }
+
+    // Give immediate visual feedback so we
+    // know the click actually registered.
+    resultsContainer.innerHTML = `
+        <div class="youtube-search-status">
+            Opening ${snippet.title || "channel"}...
+        </div>
+    `;
+
+    await loadYouTubeChannelVideos(
+        channelId,
+        snippet.title ||
+            "YouTube channel"
+    );
+};
+
+resultsContainer.appendChild(
+    item
+);
+            }
+        );
+
+    } catch (error) {
+
+        console.error(
+            "YouTube account request failed:",
+            error
+        );
+    }
+}
+
+async function loadYouTubeChannelVideos(
+    channelId,
+    channelTitle
+) {
+    const resultsContainer =
+        document.querySelector(
+            ".youtube-browse-results"
+        );
+
+    if (!resultsContainer) {
+        return;
+    }
+
+    resultsContainer.innerHTML = `
+        <div class="youtube-channel-header">
+            <button
+                type="button"
+                class="youtube-channel-back"
+            >
+                ← Back
+            </button>
+
+            <strong></strong>
+        </div>
+
+        <div class="youtube-search-status">
+            Loading videos...
+        </div>
+    `;
+
+    resultsContainer
+        .querySelector(
+            ".youtube-channel-header strong"
+        )
+        .textContent = channelTitle;
+
+    resultsContainer
+        .querySelector(
+            ".youtube-channel-back"
+        )
+        .addEventListener(
+            "click",
+            () => {
+                loadYouTubeAccount();
+            }
+        );
+
+    try {
+        const url =
+            "https://www.googleapis.com/youtube/v3/search" +
+            "?part=snippet" +
+            "&type=video" +
+            "&order=date" +
+            "&videoEmbeddable=true" +
+            "&videoSyndicated=true" +
+            "&maxResults=20" +
+            `&channelId=${encodeURIComponent(
+                channelId
+            )}` +
+            `&key=${encodeURIComponent(
+                YOUTUBE_API_KEY
+            )}`;
+
+        const response =
+            await fetch(url);
+
+        const data =
+            await response.json();
+
+        if (!response.ok) {
+            console.error(
+                "Channel video load failed:",
+                data
+            );
+
+            resultsContainer.innerHTML = `
+                <button
+                    type="button"
+                    class="youtube-channel-back"
+                >
+                    ← Back
+                </button>
+
+                <div class="youtube-search-status">
+                    Unable to load channel videos.
+                </div>
+            `;
+
+            resultsContainer
+                .querySelector(
+                    ".youtube-channel-back"
+                )
+                .addEventListener(
+                    "click",
+                    () => {
+                        loadYouTubeAccount();
+                    }
+                );
+
+            return;
+        }
+
+        const items =
+            data.items || [];
+
+        resultsContainer.innerHTML = `
+            <div class="youtube-channel-header">
+                <button
+                    type="button"
+                    class="youtube-channel-back"
+                >
+                    ← Back
+                </button>
+
+                <strong></strong>
+            </div>
+        `;
+
+        resultsContainer
+            .querySelector(
+                ".youtube-channel-header strong"
+            )
+            .textContent = channelTitle;
+
+        resultsContainer
+            .querySelector(
+                ".youtube-channel-back"
+            )
+            .addEventListener(
+                "click",
+                () => {
+                    loadYouTubeAccount();
+                }
+            );
+
+        items.forEach(result => {
+            const videoId =
+                result.id?.videoId;
+
+            if (!videoId) {
+                return;
+            }
+
+            const snippet =
+                result.snippet || {};
+
+            const item =
+                document.createElement(
+                    "button"
+                );
+
+            item.type = "button";
+            item.className =
+                "youtube-result-item";
+
+            const thumbnail =
+                snippet.thumbnails
+                    ?.medium?.url ||
+                snippet.thumbnails
+                    ?.default?.url ||
+                "";
+
+            item.innerHTML = `
+                <img
+                    class="youtube-result-thumb"
+                    src="${thumbnail}"
+                    alt=""
+                >
+
+                <div class="youtube-result-text">
+                    <strong></strong>
+                    <span></span>
+                </div>
+            `;
+
+            item.querySelector(
+                "strong"
+            ).textContent =
+                snippet.title ||
+                "Untitled video";
+
+            item.querySelector(
+                "span"
+            ).textContent =
+                snippet.channelTitle ||
+                channelTitle;
+
+            item.addEventListener(
+                "click",
+                () => {
+                    if (!youtubeIframe) {
+                        return;
+                    }
+
+                    localStorage.setItem(
+    "opsLastYouTubeVideoId",
+    videoId
+);
+
+localStorage.setItem(
+    "opsLastYouTubeTime",
+    "0"
+);
+
+youtubeIframe.src =
+                        `https://www.youtube.com/embed/${encodeURIComponent(
+                            videoId
+                        )}?enablejsapi=1&autoplay=1`;
+
+                    youtubeBrowsePanel
+                        ?.classList
+                        .remove("open");
+                }
+            );
+
+            resultsContainer.appendChild(
+                item
+            );
+        });
+
+    } catch (error) {
+        console.error(
+            "Channel video request failed:",
+            error
+        );
+    }
+}
+
+async function searchYouTube(query) {
+    const resultsContainer =
+        document.querySelector(
+            ".youtube-browse-results"
+        );
+
+    if (!resultsContainer) {
+        return;
+    }
+
+    if (!query) {
+        resultsContainer.innerHTML = "";
+        return;
+    }
+
+    resultsContainer.innerHTML =
+        `<div class="youtube-search-status">
+            Searching...
+        </div>`;
+
+    try {
+        const url =
+            "https://www.googleapis.com/youtube/v3/search" +
+            "?part=snippet" +
+            "&type=video" +
+"&videoEmbeddable=true" +
+"&videoSyndicated=true" +
+"&maxResults=10" +
+            `&q=${encodeURIComponent(query)}` +
+            `&key=${encodeURIComponent(YOUTUBE_API_KEY)}`;
+
+        const response =
+            await fetch(url);
+
+        const data =
+            await response.json();
+
+        if (!response.ok) {
+            console.error(
+                "YouTube search failed:",
+                data
+            );
+
+            resultsContainer.innerHTML =
+                `<div class="youtube-search-status">
+                    YouTube search failed.
+                </div>`;
+
+            return;
+        }
+
+        resultsContainer.innerHTML = "";
+
+        (data.items || []).forEach(
+            result => {
+                const videoId =
+                    result.id?.videoId;
+
+                if (!videoId) {
+                    return;
+                }
+
+                const snippet =
+                    result.snippet || {};
+
+                const item =
+                    document.createElement(
+                        "button"
+                    );
+
+                item.type = "button";
+                item.className =
+                    "youtube-result-item";
+
+                item.dataset.videoId =
+                    videoId;
+
+                const thumbnail =
+                    snippet.thumbnails
+                        ?.medium
+                        ?.url ||
+                    snippet.thumbnails
+                        ?.default
+                        ?.url ||
+                    "";
+
+                item.innerHTML = `
+                    <img
+                        class="youtube-result-thumb"
+                        src="${thumbnail}"
+                        alt=""
+                    >
+
+                    <div class="youtube-result-text">
+                        <strong></strong>
+                        <span></span>
+                    </div>
+                `;
+
+                item.querySelector(
+                    "strong"
+                ).textContent =
+                    snippet.title ||
+                    "Untitled video";
+
+                item.querySelector(
+                    "span"
+                ).textContent =
+                    snippet.channelTitle ||
+                    "";
+
+                item.addEventListener(
+                    "click",
+                    () => {
+                        if (!youtubeIframe) {
+                            return;
+                        }
+
+                        localStorage.setItem(
+    "opsLastYouTubeVideoId",
+    videoId
+);
+
+localStorage.setItem(
+    "opsLastYouTubeTime",
+    "0"
+);
+
+youtubeIframe.src =
+                            `https://www.youtube.com/embed/${encodeURIComponent(
+                                videoId
+                            )}?enablejsapi=1&autoplay=1`;
+
+                        youtubeBrowsePanel
+                            ?.classList
+                            .remove("open");
+                    }
+                );
+
+                resultsContainer.appendChild(
+                    item
+                );
+            }
+        );
+
+    } catch (error) {
+        console.error(
+            "YouTube search request failed:",
+            error
+        );
+
+        resultsContainer.innerHTML =
+            `<div class="youtube-search-status">
+                Unable to search YouTube.
+            </div>`;
+    }
+}
+
+if (youtubeSearchInput) {
+    youtubeSearchInput.addEventListener(
+        "input",
+        () => {
+            const query =
+                youtubeSearchInput
+                    .value
+                    .trim();
+
+            const pastedVideoId =
+                getYouTubeVideoId(query);
+
+            if (
+                pastedVideoId &&
+                youtubeIframe
+            ) {
+                if (youtubeSearchTimer) {
+                    clearTimeout(
+                        youtubeSearchTimer
+                    );
+                }
+
+                localStorage.setItem(
+    "opsLastYouTubeVideoId",
+    pastedVideoId
+);
+
+localStorage.setItem(
+    "opsLastYouTubeTime",
+    "0"
+);
+
+youtubeIframe.src =
+    `https://www.youtube.com/embed/${encodeURIComponent(
+        pastedVideoId
+    )}?enablejsapi=1&autoplay=1`;
+
+                if (youtubeBrowsePanel) {
+                    youtubeBrowsePanel.classList.remove(
+                        "open"
+                    );
+                }
+
+                youtubeSearchInput.value = "";
+
+                return;
+            }
+
+            // the existing normal YouTube
+            // search timer code continues here
+
+            if (youtubeSearchTimer) {
+                clearTimeout(
+                    youtubeSearchTimer
+                );
+            }
+
+            youtubeSearchTimer =
+                setTimeout(
+                    () => {
+                        searchYouTube(query);
+                    },
+                    350
+                );
+        }
+    );
+}
 
 if (readOnlyMode) {
 
@@ -3672,8 +4721,8 @@ if (imageUploadArea && imageFileInput && addImageBtn) {
                             height: Math.round(height),
                             aspectRatio
                         });
-                        saveTemplates();
-                        render();
+                        saveAll();
+render();
                     };
                     probe.onerror = () => {
                         activeTemplate.images.push({
@@ -3682,7 +4731,7 @@ if (imageUploadArea && imageFileInput && addImageBtn) {
                             height: 180,
                             aspectRatio: 180 / 220
                         });
-                        saveTemplates();
+                        saveAll();
                         render();
                     };
                     probe.src = dataUrl;
@@ -3751,6 +4800,29 @@ async function checkViewMode() {
 if (typeof document !== "undefined") {
     document.addEventListener("DOMContentLoaded", init);
 }
+
+document.addEventListener(
+    "visibilitychange",
+    () => {
+        if (
+            document.visibilityState ===
+            "hidden"
+        ) {
+            saveTemplates();
+
+            if (cloudSavePending) {
+                flushCloudSave();
+            }
+        }
+    }
+);
+
+window.addEventListener(
+    "beforeunload",
+    () => {
+        saveYouTubeProgress();
+    }
+);
 
 if (typeof module !== "undefined" && module.exports) {
     module.exports = {
@@ -4071,26 +5143,13 @@ if (googleLoginBtn) {
     };
 }
 
-document.addEventListener("DOMContentLoaded", async () => {
-    await createProfileIfMissing();
-    await loadAccountInfo();
-
-    const {
-        data: { user }
-    } = await supabaseClient.auth.getUser();
-
-    if (user) {
-        console.log("Logged-in user detected. Loading cloud data...");
-
-        const cloudLoaded = await loadTemplatesFromCloud();
-        if (!cloudLoaded) {
-            console.log("No cloud data found. Saving local Typings to cloud...");
-            await saveTemplatesToCloud();
-        }
-
-        render();
+document.addEventListener(
+    "DOMContentLoaded",
+    async () => {
+        await createProfileIfMissing();
+        await loadAccountInfo();
     }
-});
+);
 
 async function createProfileIfMissing() {
     const {
