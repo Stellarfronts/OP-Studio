@@ -1974,7 +1974,7 @@ body * {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 16px;
-    align-items: start;
+    align-items: stretch;
 }
 
 .database-entry-card {
@@ -2451,10 +2451,7 @@ body.dark .option-card.slider-half-selected::after {
    YouTube workspace
    ========================= */
 
-.youtube-area {
-    width: 100%;
-    flex: 0 0 auto;
-    margin: 0;
+.youtube-player {
 }
 
 .youtube-player {
@@ -2465,18 +2462,9 @@ body.dark .option-card.slider-half-selected::after {
     overflow: hidden;
 
     border-radius: 10px;
-
     background: #111;
-}
+    flex: 0 0 auto;
 
-.results-panel {
-    display: flex;
-    flex-direction: column;
-}
-
-.results-photo-area {
-    flex: 1 1 0;
-    min-height: 0;
 }
 
 .youtube-player iframe {
@@ -2488,36 +2476,73 @@ body.dark .option-card.slider-half-selected::after {
 
     border: 0;
     display: block;
+
+    z-index: 1;
 }
 
-.youtube-browse-btn {
+/* Search button overlays only a tiny
+   top-left portion of the player. */
+
+#youtubeBrowseBtn {
     position: absolute;
     top: 8px;
-    right: 8px;
-    z-index: 5;
+    left: 55px;
+
+    z-index: 10;
 
     width: 30px;
     height: 30px;
-    padding: 0;
 
     display: flex;
     align-items: center;
     justify-content: center;
 
-    border-radius: 50%;
-    background: rgba(0, 0, 0, 0.68);
-    color: white;
-    font-size: 14px;
+    padding: 4px;
+    margin: 0;
+
+    border: none;
+    border-radius: 6px;
+    outline: none;
+    box-shadow: none;
+
+    background: rgba(0, 0, 0, 0.45);
+
+    opacity: 0.85;
+
+    transition:
+        opacity 0.12s ease,
+        background 0.12s ease;
 }
 
-.youtube-browse-btn:hover {
-    background: rgba(0, 0, 0, 0.84);
+#youtubeBrowseBtn:hover,
+#youtubeBrowseBtn:focus-visible {
+    opacity: 1;
+    background: rgba(0, 0, 0, 0.7);
 }
+
+.youtube-search-icon {
+    display: block;
+
+    width: 18px;
+    height: 18px;
+
+    fill: none;
+    stroke: #fff;
+    stroke-width: 2;
+    stroke-linecap: round;
+
+    filter: drop-shadow(
+        0 1px 2px rgba(0, 0, 0, 0.7)
+    );
+}
+
+/* Search overlay */
 
 .youtube-browse-panel {
     position: absolute;
     inset: 0;
-    z-index: 10;
+
+    z-index: 4;
 
     display: none;
     flex-direction: column;
@@ -2534,33 +2559,54 @@ body.dark .option-card.slider-half-selected::after {
 
 .youtube-browse-header {
     display: flex;
+    align-items: center;
     gap: 6px;
+
     padding: 8px;
 }
 
-.youtube-browse-header input {
+#youtubeSearchInput {
     flex: 1;
     min-width: 0;
+    width: 100%;
 
     border: none;
     border-radius: 999px;
+
     padding: 7px 10px;
 
-    background: #ffffff;
+    background: #fff;
     color: #111827;
+
+    outline: none;
 }
 
-.youtube-browse-header button {
+.youtube-close-btn {
     flex: 0 0 auto;
 
-    width: 30px;
-    height: 30px;
+    width: 28px;
+    height: 28px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
     padding: 0;
+
+    border: none;
+    border-radius: 0;
 
     background: transparent;
     color: white;
 
+    box-shadow: none;
+    outline: none;
+
     font-size: 20px;
+}
+
+.youtube-close-btn:hover {
+    background: transparent;
 }
 
 .youtube-browse-results {
@@ -2582,6 +2628,7 @@ body.dark .option-card.slider-half-selected::after {
     width: 100%;
     padding: 6px;
 
+    border: none;
     border-radius: 8px;
 
     background: transparent;
@@ -2596,6 +2643,7 @@ body.dark .option-card.slider-half-selected::after {
 
 .youtube-result-thumb {
     flex: 0 0 72px;
+
     width: 72px;
     aspect-ratio: 16 / 9;
 
@@ -2621,3 +2669,918 @@ body.dark .option-card.slider-half-selected::after {
     font-size: 9px;
     opacity: 0.7;
 }
+
+
+/* =========================
+   Notification bell
+   ========================= */
+
+#notificationsPageBtn {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+.notification-bell-icon {
+    width: 17px;
+    height: 17px;
+
+    fill: none;
+    stroke: #222;
+
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+body.dark .notification-bell-icon {
+    stroke: #f3f4f6;
+}
+
+
+/* =========================
+   Add-image dark hover cleanup
+   ========================= */
+
+body.dark .add-image-btn,
+body.dark .add-image-btn:hover,
+body.dark .add-image-btn:focus,
+body.dark .add-image-btn:focus-visible,
+body.dark .results-photo-area:hover .add-image-btn {
+    background: transparent !important;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+.youtube-player {
+    transform: translateY(31.59375px);
+}
+
+#youtubeBrowseBtn {
+    transform: translateY(-31.09375px);
+}
+
+#notesArea {
+    transform: translateY(-6.90625px);
+}
+
+/* YouTube search bar above player */
+.youtube-player {
+    overflow: visible;
+}
+
+.youtube-player iframe {
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.youtube-browse-panel,
+.youtube-browse-panel.open {
+    display: flex;
+    position: absolute;
+
+    left: 0;
+    right: 0;
+    top: -31.09375px;
+    bottom: auto;
+
+    height: 31.09375px;
+
+    background: transparent;
+    color: inherit;
+    overflow: visible;
+
+    z-index: 20;
+}
+
+.youtube-browse-header {
+    width: 100%;
+    height: 31.09375px;
+
+    padding: 0;
+    gap: 4px;
+
+    box-sizing: border-box;
+}
+
+#youtubeSearchInput {
+    height: 28px;
+    padding: 4px 9px;
+
+    border-radius: 7px;
+    border: none;
+
+    background: transparent;
+    color: inherit;
+
+    box-shadow: none;
+    outline: none;
+}
+
+.youtube-close-btn {
+    display: none;
+}
+
+.youtube-browse-results {
+    position: absolute;
+    top: 31.09375px;
+    left: 0;
+    right: 0;
+
+    max-height: 260px;
+    overflow-y: auto;
+
+    padding: 4px 6px;
+
+    background: rgba(17, 24, 39, 0.96);
+    border-radius: 8px;
+}
+
+#youtubeBrowseBtn {
+    display: none !important;
+}
+
+/* YouTube search-row controls */
+
+#youtubeBrowseBtn {
+    display: none !important;
+}
+
+.youtube-browse-header {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.youtube-control-btn {
+    width: 28px;
+    height: 28px;
+
+    flex: 0 0 28px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 5px;
+
+    border: none;
+    border-radius: 7px;
+
+    background: transparent;
+    color: #6b7280;
+
+    box-shadow: none;
+    outline: none;
+
+    cursor: pointer;
+
+    opacity: 0.75;
+    transition:
+        opacity 0.12s ease,
+        background 0.12s ease;
+}
+
+.youtube-control-btn:hover {
+    opacity: 1;
+    background: rgba(0, 0, 0, 0.06);
+}
+
+.youtube-control-btn svg {
+    width: 17px;
+    height: 17px;
+
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+#youtubeSearchInput {
+    flex: 1;
+}
+
+body.dark .youtube-control-btn {
+    color: #d1d5db;
+}
+
+body.dark .youtube-control-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+/* YouTube on/off state */
+
+body.youtube-disabled #youtubePlayer {
+    display: none !important;
+}
+
+body.youtube-disabled #youtubeSearchInput,
+body.youtube-disabled #youtubeExpandBtn,
+body.youtube-disabled .youtube-browse-results {
+    display: none !important;
+}
+
+body.youtube-disabled #youtubeToggleBtn {
+    position: absolute;
+    top: 0;
+    left: 0;
+}
+
+.youtube-toggle-btn.off {
+    opacity: 0.45;
+}
+
+/* Keep YouTube power control fixed in search row position */
+
+#youtubeToggleBtn {
+    position: absolute;
+    z-index: 30;
+
+    left: 0;
+    top: 0;
+
+    transform: translateY(0);
+
+    width: 28px;
+    height: 28px;
+}
+
+.youtube-browse-header {
+    padding-left: 33px;
+}
+
+/* OFF must not reposition the power button */
+body.youtube-disabled #youtubeToggleBtn {
+    position: absolute;
+    left: 0;
+    top: 0;
+    transform: translateY(0);
+}
+
+.results-panel {
+    position: relative;
+}
+
+/* Expanded YouTube mode */
+
+body.youtube-expanded .center-panel {
+    padding: 10px 12px;
+    margin-top: 4px;
+
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+
+    overflow: hidden;
+}
+
+/* Hide only the top stats while expanded */
+body.youtube-expanded .center-top-stats {
+    display: none !important;
+}
+
+/* Large YouTube player stays at the top */
+body.youtube-expanded .center-panel #youtubePlayer {
+    width: min(100%, 900px);
+
+    aspect-ratio: 16 / 9;
+
+    transform: none !important;
+
+    margin: 0 auto 8px;
+
+    flex: 0 0 auto;
+}
+
+/* Coins use all remaining space below the video */
+body.youtube-expanded #coinContainer {
+    display: grid !important;
+
+    flex: 1 1 auto;
+    min-height: 0;
+
+    width: 100%;
+    max-width: 955px;
+
+    margin: 0 auto;
+
+    overflow-y: auto;
+    overflow-x: hidden;
+
+    padding-top: 4px;
+    padding-right: 6px;
+    padding-bottom: 8px;
+}
+
+body.youtube-expanded .center-panel #youtubePlayer {
+    order: 1;
+}
+
+body.youtube-expanded #coinContainer {
+    order: 2;
+}
+
+/* Final expanded YouTube alignment */
+
+body.youtube-expanded .center-panel {
+    margin-top: 0;
+
+    padding:
+    40px
+    12px
+    10px;
+
+    box-sizing: border-box;
+
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+}
+
+
+/* YouTube: same horizontal bounds as coin area */
+body.youtube-expanded .center-panel #youtubePlayer {
+    order: 1;
+
+    width: 100%;
+    max-width: 955px;
+
+    box-sizing: border-box;
+
+    margin:
+        0 auto 8px;
+
+    transform: none !important;
+
+    flex: 0 0 auto;
+
+    aspect-ratio: 16 / 9;
+}
+
+
+/* Coins fill ONLY the remaining height */
+body.youtube-expanded #coinContainer {
+    order: 2;
+
+    width: 100%;
+    max-width: 955px;
+
+    box-sizing: border-box;
+
+    flex: 1 1 0;
+    min-height: 0;
+
+    margin: 0 auto;
+    padding:
+        4px
+        2px
+        0;
+
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+
+/* Stats stay hidden in expanded mode */
+body.youtube-expanded .center-top-stats {
+    display: none !important;
+}
+
+/* Match expanded YouTube width to visible coin bounds */
+
+body.youtube-expanded .center-panel #youtubePlayer {
+    width: 100%;
+max-width: 955px;
+
+    margin-left: auto;
+    margin-right: auto;
+}
+
+
+/* Keep coin content visually centered even with scrollbar */
+
+body.youtube-expanded #coinContainer {
+    width: 100%;
+    max-width: 955px;
+
+    padding-left: 0;
+    padding-right: 0;
+
+    scrollbar-gutter: auto;
+
+    box-sizing: border-box;
+}
+
+body.youtube-expanded .center-panel #youtubePlayer,
+body.youtube-expanded .center-panel #youtubeIframe {
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+body.youtube-expanded .center-panel #youtubeIframe {
+    display: block;
+}
+
+body.youtube-expanded .center-panel #youtubePlayer {
+    overflow: visible;
+    background: transparent !important;
+}
+
+/* Restore exact YouTube player dimensions */
+
+#youtubePlayer {
+    background: transparent !important;
+    overflow: visible;
+}
+
+#youtubeIframe {
+    position: absolute;
+
+    top: 0;
+    left: 0;
+
+    width: 100%;
+    height: 100%;
+
+    border: 0 !important;
+    outline: 0 !important;
+    box-shadow: none !important;
+
+    border-radius: 10px;
+}
+
+body.youtube-expanded .center-panel #youtubePlayer {
+    overflow: visible;
+}
+
+#youtubePlayer,
+.youtube-player {
+    background: transparent !important;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+#youtubePlayer::before,
+#youtubePlayer::after,
+.youtube-player::before,
+.youtube-player::after {
+    content: none !important;
+    display: none !important;
+}
+
+/* Hide empty YouTube search-results overlay */
+.youtube-browse-results:not(:has(.youtube-result-item)) {
+    display: none !important;
+}
+
+/* Fine-tune expanded YouTube vertical position */
+body.youtube-expanded .center-panel {
+    padding-top: 41px !important;
+    padding-bottom: 0 !important;
+}
+
+/* Align YouTube power button with search bar — little mode only */
+body:not(.youtube-expanded) #youtubeToggleBtn {
+    top: 11.55px !important;
+    left: 12px !important;
+    transform: none !important;
+
+    width: 28px;
+    height: 28px;
+}
+
+/* YouTube OFF: fixed image top alignment */
+body.youtube-disabled #imageUploadArea {
+    padding-top: 31.0958282470703125px !important;
+    justify-content: flex-start !important;
+}
+
+body.youtube-disabled #imagePreviewContainer {
+    margin-top: 0 !important;
+    align-self: stretch;
+}
+
+/* Expanded YouTube: image stays at same normal top position */
+body.youtube-expanded #imageUploadArea {
+    padding-top: 29px !important;
+    justify-content: flex-start !important;
+}
+
+body.youtube-expanded #imagePreviewContainer {
+    margin-top: 0 !important;
+    align-self: stretch;
+    justify-content: flex-start !important;
+}
+
+/* Keep the actual image's rounded corners */
+body.youtube-disabled .image-preview-card,
+body.youtube-disabled .image-preview,
+body.youtube-expanded .image-preview-card,
+body.youtube-expanded .image-preview {
+    border-radius: 10px !important;
+    overflow: hidden !important;
+}
+
+/* Image size changes downward, not from its top */
+/* Image always grows downward from the same fixed top */
+body.youtube-disabled .image-preview-card,
+body.youtube-expanded .image-preview-card {
+    transform-origin: top center !important;
+    border-radius: 10px !important;
+    overflow: hidden !important;
+}
+
+body.youtube-expanded .image-preview {
+    display: block;
+    width: 100% !important;
+    height: auto !important;
+    object-fit: contain !important;
+    object-position: top center !important;
+    border-radius: 10px !important;
+}
+
+/* Little YouTube ON: place image properly below visible player */
+body:not(.youtube-disabled):not(.youtube-expanded) #imageUploadArea {
+    margin-top: 31.09375px !important;
+}
+
+/* Pin image resize handle to bottom-right corner */
+.image-preview-card {
+    position: relative !important;
+}
+
+.image-resize-handle {
+    position: absolute !important;
+    right: 3px !important;
+    bottom: 1px !important;
+}
+
+/* YouTube OFF + no image: keep Add image centered */
+body.youtube-disabled #imageUploadArea:not(.has-images) {
+    padding-top: 0 !important;
+    justify-content: center !important;
+    align-items: center !important;
+}
+
+body.youtube-disabled #imageUploadArea:not(.has-images) #imagePlaceholder {
+    margin: 0 !important;
+}
+
+/* Expanded YouTube: keep image centered while resizing */
+body.youtube-expanded #imagePreviewContainer {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: flex-start !important;
+}
+
+body.youtube-expanded .image-preview-card {
+    margin-left: auto !important;
+    margin-right: auto !important;
+}
+
+/* =====================================================
+   EXPANDED YOUTUBE — KEEP LIVE IFRAME MOUNTED
+   ===================================================== */
+
+/*
+   Never move #youtubePlayer out of the results panel.
+   In expanded mode, visually place that same live
+   iframe over the center panel.
+*/
+body.youtube-expanded #youtubePlayer {
+    position: fixed !important;
+
+    left: var(--yt-expanded-left) !important;
+    top: var(--yt-expanded-top) !important;
+
+    width: var(--yt-expanded-width) !important;
+    height: var(--yt-expanded-height) !important;
+
+    max-width: none !important;
+    aspect-ratio: auto !important;
+
+    margin: 0 !important;
+    transform: none !important;
+
+    z-index: 20 !important;
+}
+
+
+/*
+   Reserve the exact space the player previously
+   occupied inside the center panel.
+*/
+body.youtube-expanded .center-panel {
+    padding-top: var(--yt-expanded-space) !important;
+    padding-bottom: 0 !important;
+}
+
+
+/*
+   Coins fill the remaining center-panel height.
+*/
+body.youtube-expanded #coinContainer {
+    flex: 1 1 0 !important;
+    min-height: 0 !important;
+
+    width: 100% !important;
+    max-width: 955px !important;
+
+    margin: 0 auto !important;
+
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+}
+
+
+/*
+   Player remains visible even though its real DOM
+   parent is still the left results panel.
+*/
+body.youtube-expanded .results-panel {
+    overflow: visible !important;
+}
+
+/* Expanded mode: lower ONLY the left image */
+body.youtube-expanded #imagePreviewContainer {
+    transform: translateY(2.09375px) !important;
+}
+
+/* Let image use the same horizontal width as small YouTube */
+#imageUploadArea.has-images #imagePreviewContainer {
+    width: calc(100% + 20px) !important;
+    margin-left: -10px !important;
+    margin-right: -10px !important;
+}
+
+/* Keep YouTube power button pixel-identical in every mode */
+#youtubeToggleBtn {
+    position: absolute !important;
+    top: 11.55px !important;
+    left: 12px !important;
+    transform: none !important;
+
+    width: 28px !important;
+    height: 28px !important;
+}
+
+/* Hide YouTube search results after the search panel closes */
+.youtube-browse-panel:not(.open) .youtube-browse-results {
+    display: none !important;
+}
+
+/* =========================
+   Notes + control cleanup
+   ========================= */
+
+/* Remove Notes panel background completely */
+.notes-panel {
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+body.dark .notes-panel {
+    background: transparent !important;
+}
+
+/* Remove gray Notes textarea background */
+#notesArea {
+    background: transparent !important;
+}
+
+/* Move Notes title slightly to the right */
+/* Align Notes header controls with textarea writing width */
+.notes-header {
+    padding-left: 8px;
+    padding-right: 8px;
+    box-sizing: border-box;
+}
+
+.notes-header h2 {
+    transform: none;
+}
+
+/* In dark mode, Notes outer area should blend
+   with the main dark page instead of becoming a panel. */
+body.dark .notes-panel {
+    background: #111827 !important;
+}
+
+
+/* Custom bullet/list icon:
+   its visible pieces are pseudo-elements,
+   so recolor those directly. */
+body.dark .notes-bullet-btn::before {
+    background: #f3f4f6 !important;
+    box-shadow:
+        0 5px 0 #f3f4f6,
+        0 10px 0 #f3f4f6 !important;
+}
+
+body.dark .notes-bullet-btn::after {
+    background: #f3f4f6 !important;
+    box-shadow:
+        0 5px 0 #f3f4f6,
+        0 10px 0 #f3f4f6 !important;
+}
+
+
+/* YouTube power/close + expand/minimize:
+   no resting button bubble or outline in dark mode. */
+body.dark #youtubeToggleBtn,
+body.dark #youtubeExpandBtn,
+body.dark #youtubeBrowseCloseBtn {
+    background: transparent !important;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+/* Keep resting/focus states clean */
+body.dark #youtubeToggleBtn:focus,
+body.dark #youtubeToggleBtn:focus-visible,
+body.dark #youtubeToggleBtn:active,
+body.dark #youtubeExpandBtn:focus,
+body.dark #youtubeExpandBtn:focus-visible,
+body.dark #youtubeExpandBtn:active,
+body.dark #youtubeBrowseCloseBtn:focus,
+body.dark #youtubeBrowseCloseBtn:focus-visible,
+body.dark #youtubeBrowseCloseBtn:active {
+    background: transparent !important;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+/* Parenthesized animal half-selection:
+   exactly 50% width AND 50% height,
+   centered both horizontally and vertically. */
+.option-card.special-half-selected {
+    background:
+        linear-gradient(
+            #eeefff,
+            #eeefff
+        )
+        center / 50% 50%
+        no-repeat !important;
+
+    box-shadow: none !important;
+}
+
+/* Nothing outside the center area gets filled */
+.option-card.special-half-selected .option-button {
+    color: #5f66ea;
+}
+
+
+/* Dark mode */
+body.dark .option-card.special-half-selected {
+    background:
+        linear-gradient(
+            #6368d8,
+            #6368d8
+        )
+        center / 50% 50%
+        no-repeat !important;
+
+    box-shadow: none !important;
+}
+
+body.dark
+.option-card.special-half-selected
+.option-button {
+    color: #d8dcff;
+}
+
+.option-card.special-half-selected .option-button {
+    color: #5f66ea;
+}
+
+/* Dark mode */
+body.dark .option-card.special-half-selected {
+    background:
+        linear-gradient(
+            90deg,
+            transparent 25%,
+            #6368d8 25%,
+            #6368d8 75%,
+            transparent 75%
+        ) !important;
+
+    box-shadow: none !important;
+}
+
+body.dark .option-card.special-half-selected .option-button {
+    color: #d8dcff;
+}
+
+/* Last-animal half selection:
+   exactly 50% of the card's total surface area,
+   centered horizontally AND vertically. */
+.option-card.special-half-selected {
+    background:
+        linear-gradient(
+            #eeefff,
+            #eeefff
+        )
+        center / 70.710678% 70.710678%
+        no-repeat,
+        #ffffff !important;
+
+    box-shadow: none !important;
+}
+
+.option-card.special-half-selected .option-button {
+    color: #5f66ea;
+}
+
+
+/* Dark mode */
+body.dark .option-card.special-half-selected {
+    background:
+        linear-gradient(
+            #6368d8,
+            #6368d8
+        )
+        center / 70.710678% 70.710678%
+        no-repeat,
+        #1f2937 !important;
+
+    box-shadow: none !important;
+}
+
+body.dark
+.option-card.special-half-selected
+.option-button {
+    color: #d8dcff;
+}
+
+/* Four parenthesized animal definitions */
+.option-card textarea.option-definition {
+    height: 3.1em;
+    min-height: 3.1em;
+    max-height: none;
+
+    resize: none;
+    overflow: hidden;
+
+    line-height: 1.35;
+    padding-top: 2px;
+    padding-bottom: 2px;
+
+    flex: 1;
+}
+
+/* Database cards:
+   updated indicator never affects card size */
+.database-entry-card {
+    position: relative;
+}
+
+/* Small, secondary update indicator */
+.typing-card-updated {
+    position: absolute;
+
+    top: 7px;
+    right: 9px;
+
+    font-size: 9px;
+    line-height: 1;
+
+    opacity: 0.42;
+
+    white-space: nowrap;
+    pointer-events: auto;
+
+    margin: 0;
+    padding: 0;
+
+    background: transparent;
+    border: none;
+    box-shadow: none;
+}
+
+/* Keep database titles from changing card height */
+.database-entry-card h2 {
+    line-height: 1.25;
+    min-height: 2.5em;
+    max-height: 2.5em;
+
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+

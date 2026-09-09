@@ -752,7 +752,7 @@ const updatedDate =
                     ${escapeHtml(createdDate)}
                 </div>
 
-                ${
+               ${
     wasUpdated
         ? `
             <div
@@ -760,9 +760,7 @@ const updatedDate =
                 title="Last updated ${escapeHtml(
                     updatedDate
                 )}">
-                ↻ Updated ${escapeHtml(
-                    updatedDate
-                )}
+                ↻ Updated
             </div>
         `
         : ""

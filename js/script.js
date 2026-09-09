@@ -1,7 +1,43 @@
 console.log("OP Studio loaded!");
+console.log(
+    "PAGE SCRIPT START:",
+    new Date().toISOString(),
+    "navigation type:",
+    performance.getEntriesByType("navigation")[0]?.type
+);
+
+// Diagnose unexpected page reloads/navigation
+window.addEventListener("pagehide", (event) => {
+    console.warn("PAGEHIDE:", {
+        time: new Date().toISOString(),
+        persisted: event.persisted,
+        href: location.href
+    });
+});
+
+document.addEventListener("submit", (event) => {
+    console.warn("FORM SUBMIT DETECTED:", {
+        form: event.target,
+        submitter: event.submitter,
+        time: new Date().toISOString()
+    });
+});
+
+document.addEventListener("click", (event) => {
+    const link = event.target.closest("a");
+
+    if (link) {
+        console.warn("LINK CLICK DETECTED:", {
+            href: link.href,
+            target: link.target,
+            element: link,
+            time: new Date().toISOString()
+        });
+    }
+});
 
 const YOUTUBE_API_KEY =
-    "AIzaSyBDeYcjaeUKUhfKTA8SUo7Oy_1THBYR6z4";
+    "AIzaSyDAE6ZQM1bi3OXNaMNJCb7nU08Mwj6rXeY";
 
 const YOUTUBE_CLIENT_ID =
     "383277074386-90dvsvguvuukdg1ug72fmmm202kfg63b.apps.googleusercontent.com";
@@ -35,10 +71,10 @@ let showNotificationsMenu = false;
 let folders = [];
 let trash = [];
 let draggingTemplateId = null;
-let cloudSaveQueue =
-    Promise.resolve();
-    let cloudSaveTimer = null;
+let cloudSaveTimer = null;
 let cloudSavePending = false;
+let cloudSaveRunning = false;
+let cloudSaveNeedsAnotherPass = false;
 let youtubeAccessToken =
     sessionStorage.getItem(
         "opsYouTubeAccessToken"
@@ -276,101 +312,118 @@ function saveTemplates() {
         return;
     }
 
-    localStorage.setItem("opsTypingTemplates", JSON.stringify({
-        templates,
-        folders,
-        trash,
-        editingLocked,
-        darkMode,
-        activeTemplateId,
-        showTrash
-    }));
+    const localSavedAt = Date.now();
+
+localStorage.setItem("opsTypingTemplates", JSON.stringify({
+    templates,
+    folders,
+    trash,
+    editingLocked,
+    darkMode,
+    activeTemplateId,
+    showTrash,
+    savedAt: localSavedAt
+}));
 
 }
 
-function saveTemplatesToCloud() {
+async function saveTemplatesToCloud() {
     if (readOnlyMode || viewMode) {
-        return Promise.resolve();
+        return;
     }
 
-    if (
-        typeof supabaseClient ===
-        "undefined"
-    ) {
-        return Promise.resolve();
+    if (typeof supabaseClient === "undefined") {
+        return;
     }
 
-    const cloudSnapshot =
-        structuredClone({
-            templates,
-            folders,
-            trash,
-            editingLocked,
-            darkMode,
-            activeTemplateId,
-            showTrash
-        });
+    // If a cloud write is already happening,
+    // don't queue an old snapshot behind it.
+    // Just remember that we need one newest-state save afterward.
+    if (cloudSaveRunning) {
+        cloudSaveNeedsAnotherPass = true;
+        return;
+    }
 
-    cloudSaveQueue =
-        cloudSaveQueue
-            .then(async () => {
-                const {
-                    data: { user },
-                    error: userError
-                } =
-                    await supabaseClient
-                        .auth
-                        .getUser();
+    cloudSaveRunning = true;
 
-                if (
-                    userError ||
-                    !user
-                ) {
-                    return;
-                }
+    try {
+        do {
+            cloudSaveNeedsAnotherPass = false;
 
-                const { error } =
-                    await supabaseClient
-                        .from("user_data")
-                        .upsert(
-                            {
-                                user_id:
-                                    user.id,
+            const localSaved =
+                JSON.parse(
+                    localStorage.getItem(
+                        "opsTypingTemplates"
+                    ) || "{}"
+                );
 
-                                data:
-                                    cloudSnapshot,
+            // Snapshot is created immediately before THIS upload,
+            // so it is always the newest available state.
+            const cloudSnapshot =
+                structuredClone({
+                    templates,
+                    folders,
+                    trash,
+                    editingLocked,
+                    darkMode,
+                    activeTemplateId,
+                    showTrash,
+                    savedAt:
+                        Number(localSaved.savedAt) ||
+                        Date.now()
+                });
 
-                                updated_at:
-                                    new Date()
-                                        .toISOString()
-                            },
-                            {
-                                onConflict:
-                                    "user_id"
-                            }
-                        );
+            const {
+                data: { user },
+                error: userError
+            } =
+                await supabaseClient.auth.getUser();
 
-                if (error) {
-                    console.error(
-                        "Cloud save failed:",
-                        error
+            if (userError || !user) {
+                return;
+            }
+
+            const { error } =
+                await supabaseClient
+                    .from("user_data")
+                    .upsert(
+                        {
+                            user_id: user.id,
+                            data: cloudSnapshot,
+                            updated_at:
+                                new Date().toISOString()
+                        },
+                        {
+                            onConflict: "user_id"
+                        }
                     );
 
-                    return;
-                }
-
-                console.log(
-                    "Cloud save successful!"
-                );
-            })
-            .catch(error => {
+            if (error) {
                 console.error(
-                    "Cloud save queue failed:",
+                    "Cloud save failed:",
                     error
                 );
-            });
 
-    return cloudSaveQueue;
+                return;
+            }
+
+            console.log(
+                "Cloud save successful!",
+                new Date().toISOString()
+            );
+
+            // If another edit happened while we were uploading,
+            // loop once more and upload the newest state.
+        } while (cloudSaveNeedsAnotherPass);
+
+    } catch (error) {
+        console.error(
+            "Cloud save failed:",
+            error
+        );
+    } finally {
+        cloudSaveRunning = false;
+    }
 }
 
 function scheduleCloudSave() {
@@ -472,6 +525,45 @@ async function loadTemplatesFromCloud() {
     }
 
     const cloudData = data.data;
+
+/*
+    Protect newer browser work from being
+    overwritten by an older cloud copy.
+*/
+let localData = {};
+
+try {
+    localData = JSON.parse(
+        localStorage.getItem("opsTypingTemplates") || "{}"
+    );
+} catch (error) {
+    console.warn(
+        "Could not read local save timestamp:",
+        error
+    );
+}
+
+const localSavedAt =
+    Number(localData.savedAt) || 0;
+
+const cloudSavedAt =
+    Number(cloudData.savedAt) || 0;
+
+console.log("Save comparison:", {
+    localSavedAt,
+    cloudSavedAt
+});
+
+if (
+    localSavedAt > 0 &&
+    localSavedAt > cloudSavedAt
+) {
+    console.log(
+        "Local data is newer than cloud. Keeping local data."
+    );
+
+    return "local-newer";
+}
 
     if (Array.isArray(cloudData.folders)) {
         folders = cloudData.folders;
@@ -1911,10 +2003,25 @@ function renderImageGallery(activeTemplate) {
         card.className = "image-preview-card";
         card.dataset.imageIndex = String(index);
 
-        const notesMaxWidth = Math.max(140, notesArea?.clientWidth || 140);
-        const areaMaxWidth = Math.max(140, (imageUploadArea.clientWidth || 0) - 2);
-        const maxCardWidth = Math.max(140, Math.min(areaMaxWidth, notesMaxWidth));
-        const maxCardHeight = Math.max(160, (imageUploadArea.clientHeight || 0) - 24);
+const notesMaxWidth =
+    Math.max(
+        140,
+        notesArea?.clientWidth || 140
+    );
+
+const previewMaxWidth =
+    Math.max(
+        140,
+        imagePreviewContainer?.clientWidth || 140
+    );
+
+const maxCardWidth =
+    previewMaxWidth;
+
+const maxCardHeight = Math.max(
+    160,
+    (imageUploadArea.clientHeight || 0) - 24
+);
 
         const img = document.createElement("img");
         img.className = "image-preview";
@@ -1942,8 +2049,9 @@ function renderImageGallery(activeTemplate) {
         resizeHandle.textContent = "↘";
 
         let isDragging = false;
-        let isResizing = false;
-        let offsetY = 0;
+let isResizing = false;
+let resizeDirty = false;
+let offsetY = 0;
         let lastPointerX = 0;
         let lastPointerY = 0;
 
@@ -2002,7 +2110,7 @@ function renderImageGallery(activeTemplate) {
                 activeTemplate.images[index].size = nextWidth;
                 activeTemplate.images[index].height = nextHeight;
                 activeTemplate.images[index].aspectRatio = baseRatio;
-                saveAll();
+                resizeDirty = true;
                 return;
             }
             card.style.top = `${event.clientY - offsetY}px`;
@@ -2010,23 +2118,41 @@ function renderImageGallery(activeTemplate) {
         };
 
         const endDrag = () => {
-            const wasDragging = isDragging;
-            isDragging = false;
-            isResizing = false;
-            if (wasDragging && maybeSwapByDropPosition()) {
-                return;
-            }
-            card.style.position = "";
-            card.style.top = "";
-            card.style.left = "";
-            card.style.zIndex = "";
-        };
+    const wasDragging = isDragging;
+    const wasResizing = isResizing;
+
+    isDragging = false;
+    isResizing = false;
+
+    if (wasDragging && maybeSwapByDropPosition()) {
+        return;
+    }
+
+    card.style.position = "";
+    card.style.top = "";
+    card.style.left = "";
+    card.style.zIndex = "";
+
+    // Save resize only once after releasing the handle
+   if (wasResizing && resizeDirty) {
+    resizeDirty = false;
+    saveAll();
+}
+
+};
 
         card.addEventListener("mousedown", startDrag);
         resizeHandle.addEventListener("mousedown", (event) => {
-            event.stopPropagation();
-            isResizing = true;
-        });
+    event.preventDefault();
+    event.stopPropagation();
+
+    isResizing = true;
+
+    // Prevent the resize gesture from accidentally
+    // activating the YouTube expand button.
+    suppressYouTubeExpandUntil = Date.now() + 500;
+});
+
         window.addEventListener("mousemove", onMove);
         window.addEventListener("mouseup", endDrag);
         card.addEventListener("touchstart", (event) => {
@@ -2050,7 +2176,7 @@ function renderImageGallery(activeTemplate) {
                 activeTemplate.images[index].size = nextWidth;
                 activeTemplate.images[index].height = nextHeight;
                 activeTemplate.images[index].aspectRatio = baseRatio;
-                saveAll();
+                resizeDirty = true;
                 return;
             }
             card.style.left = "0px";
@@ -2438,36 +2564,183 @@ const finalizeDragSelection = (marker) => {
             pairSelector.appendChild(slider);
             pair.appendChild(pairRow);
             optionGrid.appendChild(pair);
-        } else {
-    coin.options.forEach((option) => {
-        const card =
-            document.createElement("div");
 
-        const isSelected =
-            selectedValue === option.value;
+                    } else {
+            activeTemplate.specialStates =
+                activeTemplate.specialStates || {};
 
-        card.className =
-            "option-card" +
-            (isSelected ? " selected" : "");
+               
 
-                const button = document.createElement("button");
-                button.className = "option-button";
-                button.textContent = option.label;
-                button.onclick = () => {
-                    const nextValue = activeTemplate.selections[coin.id] === option.value ? undefined : option.value;
-                    setTemplateSelection(activeTemplate, coin, nextValue);
-                    saveAll();
-                    render();
-                };
+            coin.options.forEach((option) => {
+                const card =
+                    document.createElement("div");
 
-                card.onclick = () => {
-                    const nextValue = activeTemplate.selections[coin.id] === option.value ? undefined : option.value;
-                    setTemplateSelection(activeTemplate, coin, nextValue);
-                    saveAll();
-                    render();
-                };
-                card.appendChild(button);
-                optionGrid.appendChild(card);
+                const currentState =
+                    activeTemplate.specialStates[
+                        option.value
+                    ] || 0;
+
+                card.className = "option-card";
+
+                if (currentState === 1) {
+    card.classList.add(
+        "special-half-selected"
+    );
+}
+
+                if (currentState === 2) {
+                    card.classList.add(
+                        "selected",
+                        "slider-full-selected"
+                    );
+                }
+
+const cycleSelection = () => {
+    if (
+        readOnlyMode ||
+        viewMode
+    ) {
+        return;
+    }
+
+    const oldState =
+        activeTemplate.specialStates[
+            option.value
+        ] || 0;
+
+    const newState =
+        (oldState + 1) % 3;
+
+    /*
+        Only ONE of the four animals
+        can be selected at a time.
+    */
+    Object.keys(
+        activeTemplate.specialStates
+    ).forEach((key) => {
+        activeTemplate.specialStates[key] = 0;
+    });
+
+    if (newState > 0) {
+        activeTemplate.specialStates[
+            option.value
+        ] = newState;
+
+        setTemplateSelection(
+            activeTemplate,
+            coin,
+            option.value
+        );
+    } else {
+        setTemplateSelection(
+            activeTemplate,
+            coin,
+            undefined
+        );
+    }
+
+    saveAll();
+    render();
+};
+
+                const button =
+                    document.createElement("button");
+
+                button.className =
+                    "option-button";
+
+                button.textContent =
+                    option.label;
+
+                button.disabled =
+                    readOnlyMode || viewMode;
+
+                button.addEventListener(
+                    "click",
+                    (event) => {
+                        event.stopPropagation();
+                        cycleSelection();
+                    }
+                );
+
+const input =
+    document.createElement("textarea");
+
+                input.className =
+                    "option-definition";
+
+                    input.rows = 2;
+
+                input.placeholder =
+                    `Define ${option.label}`;
+
+                input.value =
+                    option.definition || "";
+
+                input.disabled =
+    readOnlyMode ||
+    viewMode;
+
+input.readOnly =
+    editingLocked;
+
+                input.style.direction = "ltr";
+
+                input.addEventListener(
+                    "input",
+                    () => {
+                        option.definition =
+                            input.value;
+
+                        saveAll();
+                    }
+                );
+
+                input.addEventListener(
+    "click",
+    (event) => {
+        event.stopPropagation();
+
+        if (editingLocked) {
+            cycleSelection();
+        }
+    }
+);
+
+                input.addEventListener(
+                    "pointerdown",
+                    (event) => {
+                        event.stopPropagation();
+                    }
+                );
+
+                card.addEventListener(
+                    "click",
+                    cycleSelection
+                );
+
+                if (
+    option.value === "(C)" ||
+    option.value === "(S)"
+) {
+    input.classList.add(
+        "left-definition"
+    );
+
+    input.style.textAlign = "right";
+
+    card.appendChild(input);
+    card.appendChild(button);
+} else {
+    input.classList.add(
+        "right-definition"
+    );
+
+    card.appendChild(button);
+    card.appendChild(input);
+}
+
+optionGrid.appendChild(card);
             });
         }
 
@@ -3659,16 +3932,22 @@ if (!viewMode) {
             "Logged-in user detected. Loading cloud data before editing..."
         );
 
-        const cloudLoaded =
-            await loadTemplatesFromCloud();
+        const cloudResult =
+    await loadTemplatesFromCloud();
 
-        if (!cloudLoaded) {
-            console.log(
-                "No cloud data found. Saving local typings to cloud..."
-            );
+if (cloudResult === false) {
+    console.log(
+        "No cloud data found. Saving local typings to cloud..."
+    );
 
-            await saveTemplatesToCloud();
-        }
+    await saveTemplatesToCloud();
+} else if (cloudResult === "local-newer") {
+    console.log(
+        "Local data is newer. Syncing newest local data to cloud..."
+    );
+
+    await saveTemplatesToCloud();
+}
     }
 }
 
@@ -3690,6 +3969,27 @@ const youtubeBrowseCloseBtn =
 
     const youtubeIframe =
     document.getElementById("youtubeIframe");
+
+    const youtubeToggleBtn =
+    document.getElementById("youtubeToggleBtn");
+
+    const youtubeExpandBtn =
+    document.getElementById("youtubeExpandBtn");
+
+const centerPanel =
+    document.querySelector(".center-panel");
+
+const centerTopStats =
+    document.querySelector(".center-top-stats");
+
+const coinContainer =
+    document.getElementById("coinContainer");
+
+const resultsPanel =
+    document.querySelector(".results-panel");
+
+const youtubePlayer =
+    document.getElementById("youtubePlayer");
 
     const savedYouTubeVideoId =
     localStorage.getItem(
@@ -3713,6 +4013,170 @@ if (
         )}?enablejsapi=1&start=${Math.floor(
             savedYouTubeTime
         )}`;
+}
+
+function setYouTubeEnabled(enabled) {
+    document.body.classList.toggle(
+        "youtube-disabled",
+        !enabled
+    );
+
+    if (youtubeToggleBtn) {
+        youtubeToggleBtn.classList.toggle(
+            "off",
+            !enabled
+        );
+
+        youtubeToggleBtn.title =
+            enabled
+                ? "Turn YouTube off"
+                : "Turn YouTube on";
+
+        youtubeToggleBtn.setAttribute(
+            "aria-label",
+            enabled
+                ? "Turn YouTube off"
+                : "Turn YouTube on"
+        );
+    }
+
+    localStorage.setItem(
+        "opsYouTubeEnabled",
+        enabled ? "1" : "0"
+    );
+}
+
+let youtubeExpanded = false;
+
+function setYouTubeExpanded(expanded) {
+    if (
+        !youtubePlayer ||
+        !youtubeExpandBtn ||
+        !centerPanel
+    ) {
+        return;
+    }
+
+    youtubeExpanded = expanded;
+
+    if (expanded) {
+        /*
+            IMPORTANT:
+            Do NOT move #youtubePlayer in the DOM.
+            Moving a live iframe reloads YouTube.
+
+            Instead, measure where it used to appear
+            in the center panel and let CSS place the
+            existing player there visually.
+        */
+        const centerRect =
+            centerPanel.getBoundingClientRect();
+
+        const playerWidth =
+            Math.min(
+                955,
+                Math.max(
+                    0,
+                    centerRect.width - 24
+                )
+            );
+
+        const playerHeight =
+            playerWidth * 9 / 16;
+
+        const playerLeft =
+            centerRect.left +
+            (centerRect.width - playerWidth) / 2;
+
+        const playerTop =
+    centerRect.top + 37.5;
+
+        document.documentElement.style.setProperty(
+            "--yt-expanded-left",
+            `${playerLeft}px`
+        );
+
+        document.documentElement.style.setProperty(
+            "--yt-expanded-top",
+            `${playerTop}px`
+        );
+
+        document.documentElement.style.setProperty(
+            "--yt-expanded-width",
+            `${playerWidth}px`
+        );
+
+        document.documentElement.style.setProperty(
+            "--yt-expanded-height",
+            `${playerHeight}px`
+        );
+
+        document.documentElement.style.setProperty(
+            "--yt-expanded-space",
+            `${playerHeight + 49}px`
+        );
+    }
+
+    document.body.classList.toggle(
+        "youtube-expanded",
+        expanded
+    );
+
+    youtubeExpandBtn.title =
+        expanded
+            ? "Collapse YouTube"
+            : "Expand YouTube";
+
+    youtubeExpandBtn.setAttribute(
+        "aria-label",
+        expanded
+            ? "Collapse YouTube"
+            : "Expand YouTube"
+    );
+}
+
+if (youtubeExpandBtn) {
+    youtubeExpandBtn.addEventListener(
+        "click",
+        (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+
+            setYouTubeExpanded(
+                !youtubeExpanded
+            );
+        }
+    );
+}
+
+const savedYouTubeEnabled =
+    localStorage.getItem(
+        "opsYouTubeEnabled"
+    );
+
+setYouTubeEnabled(
+    savedYouTubeEnabled !== "0"
+);
+
+if (youtubeToggleBtn) {
+    youtubeToggleBtn.addEventListener(
+        "click",
+        () => {
+            const currentlyDisabled =
+                document.body.classList.contains(
+                    "youtube-disabled"
+                );
+
+            // If turning YouTube OFF, exit expanded mode first
+            if (!currentlyDisabled) {
+                setYouTubeExpanded(false);
+            }
+
+            setYouTubeEnabled(
+                currentlyDisabled
+            );
+        }
+    );
 }
 
 function attachYouTubePlayerTracking() {
@@ -3836,7 +4300,12 @@ if (
     youtubeAccessToken &&
     youtubeAccountBtn
 ) {
-    youtubeAccountBtn.textContent = "✓";
+    youtubeAccountBtn.textContent =
+    "✓";
+
+youtubeAccountBtn.classList.add(
+    "connected"
+);
     youtubeAccountBtn.title =
         "YouTube connected";
 }
@@ -3881,7 +4350,11 @@ if (
 
                 if (youtubeAccountBtn) {
                     youtubeAccountBtn.textContent =
-                        "✓";
+    "✓";
+
+youtubeAccountBtn.classList.add(
+    "connected"
+);
                     youtubeAccountBtn.title =
                         "YouTube connected";
                 }
@@ -4590,6 +5063,13 @@ if (youtubeSearchInput) {
                     .value
                     .trim();
 
+            if (youtubeBrowsePanel) {
+                youtubeBrowsePanel.classList.toggle(
+                    "open",
+                    Boolean(query)
+                );
+            }
+
             const pastedVideoId =
                 getYouTubeVideoId(query);
 
@@ -4817,9 +5297,18 @@ document.addEventListener(
     }
 );
 
+window.addEventListener("beforeunload", () => {
+    console.warn(
+        "PAGE BEFOREUNLOAD:",
+        new Date().toISOString()
+    );
+});
+
 window.addEventListener(
     "beforeunload",
     () => {
+        // Final synchronous browser save before any reload/navigation.
+        saveTemplates();
         saveYouTubeProgress();
     }
 );
