@@ -27,6 +27,9 @@ let publicTypings = [];
 let currentUser = null;
 let userNotifications = [];
 
+let revealAllTypes = false;
+let databaseRevealAll = null;
+
 async function loadNotifications() {
     if (!notificationsList) {
         return;
@@ -677,6 +680,61 @@ function getFilteredTypings() {
     return sortTypings(filtered);
 }
 
+function setupRevealAllTypesButton() {
+    if (!clearDatabaseFilters || databaseRevealAll) {
+        return;
+    }
+
+    databaseRevealAll = document.createElement("button");
+    databaseRevealAll.type = "button";
+    databaseRevealAll.id = "databaseRevealAll";
+    databaseRevealAll.textContent = "Reveal All Types";
+
+    // Give it the same styling as the existing Clear Filters button.
+    databaseRevealAll.className =
+        clearDatabaseFilters.className;
+
+    clearDatabaseFilters.insertAdjacentElement(
+        "afterend",
+        databaseRevealAll
+    );
+
+    databaseRevealAll.addEventListener(
+        "click",
+        () => {
+            revealAllTypes = !revealAllTypes;
+
+            databaseRevealAll.textContent =
+                revealAllTypes
+                    ? "Hide All Types"
+                    : "Reveal All Types";
+
+            document
+                .querySelectorAll(
+                    "#databaseEntries .reveal-type-btn"
+                )
+                .forEach((button) => {
+                    const finalType =
+                        button.dataset.type || "";
+
+                    if (!finalType) {
+                        return;
+                    }
+
+                    button.textContent =
+                        revealAllTypes
+                            ? finalType
+                            : "Reveal Type";
+
+                    button.dataset.revealed =
+                        revealAllTypes
+                            ? "true"
+                            : "false";
+                });
+        }
+    );
+}
+
 function renderPublicTypings() {
     databaseEntries.innerHTML = "";
 
@@ -834,18 +892,30 @@ const updatedDate =
     window.location.href = `profile.html?user=${encodeURIComponent(userId)}`;
 };
 
-       // Reveal type
-const revealBtn = card.querySelector(".reveal-type-btn");
+// Reveal type
+const revealBtn =
+    card.querySelector(".reveal-type-btn");
 
-revealBtn.onclick = () => {
-    const selections = typing.data?.selections || {};
+const selections =
+    typing.data?.selections || {};
 
-   const finalType =
+const finalType =
     typing.revealed_type ||
     typing.data?.revealed_type ||
     buildDatabaseTypeLabel(selections) ||
     "";
 
+revealBtn.dataset.type = finalType;
+
+if (revealAllTypes && finalType) {
+    revealBtn.textContent = finalType;
+    revealBtn.dataset.revealed = "true";
+} else {
+    revealBtn.textContent = "Reveal Type";
+    revealBtn.dataset.revealed = "false";
+}
+
+revealBtn.onclick = () => {
     if (!finalType) {
         return;
     }
@@ -1279,6 +1349,7 @@ async function loadPublicTypings() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+    setupRevealAllTypesButton();
     loadPublicTypings();
 
     if (notificationsBtn) {

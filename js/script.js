@@ -63,8 +63,50 @@ let viewedTemplate = null;
 let templates = [];
 let activeTemplateId = null;
 let typeLibrary = [];
+
+const GUEST_WORKSPACE_KEY =
+    "opsTypingTemplatesGuest";
+
+let activeWorkspaceKey =
+    GUEST_WORKSPACE_KEY;
+
+let activeWorkspaceUserId = null;
+
+function setWorkspaceForUser(user) {
+    if (user?.id) {
+        activeWorkspaceUserId =
+            user.id;
+
+        activeWorkspaceKey =
+            `opsTypingTemplatesAccount:${user.id}`;
+    } else {
+        activeWorkspaceUserId =
+            null;
+
+        activeWorkspaceKey =
+            GUEST_WORKSPACE_KEY;
+    }
+}
+
+function resetWorkspaceMemory() {
+    templates = [];
+    folders = [];
+    trash = [];
+
+    activeTemplateId = null;
+
+    editingLocked = false;
+    showTrash = false;
+    showProjectsMenu = false;
+}
+
 let editingLocked = false;
 let darkMode = false;
+
+let coinSelectionMode =
+    localStorage.getItem("opsCoinSelectionMode") ||
+    "simple";
+
 let showProjectsMenu = false;
 let showTrash = false;
 let showNotificationsMenu = false;
@@ -82,6 +124,164 @@ let youtubeAccessToken =
 let youtubeTokenClient = null;
 let youtubePlayer = null;
 let youtubeProgressTimer = null;
+
+function saveYouTubeProgress() {
+    const activeTemplate =
+        getActiveTemplate();
+
+    if (
+        !activeTemplate ||
+        !activeTemplate.youtube ||
+        !youtubePlayer ||
+        typeof youtubePlayer.getCurrentTime !==
+            "function"
+    ) {
+        return;
+    }
+
+    try {
+        const currentTime =
+            youtubePlayer.getCurrentTime();
+
+        if (Number.isFinite(currentTime)) {
+            activeTemplate.youtube.currentTime =
+                Math.floor(currentTime);
+
+            saveTemplates();
+        }
+    } catch (error) {
+        console.warn(
+            "Unable to save YouTube position:",
+            error
+        );
+    }
+}
+
+function loadYouTubeForActiveTemplate() {
+    const activeTemplate =
+        getActiveTemplate();
+
+    const youtubeIframe =
+        document.getElementById(
+            "youtubeIframe"
+        );
+
+    const youtubeToggleBtn =
+        document.getElementById(
+            "youtubeToggleBtn"
+        );
+
+    if (
+        !activeTemplate ||
+        !youtubeIframe
+    ) {
+        return;
+    }
+
+    const youtube =
+        activeTemplate.youtube || {
+            videoId: "",
+            currentTime: 0,
+            enabled: true
+        };
+
+    if (!youtube.videoId) {
+        if (
+            youtubePlayer &&
+            typeof youtubePlayer.stopVideo ===
+                "function"
+        ) {
+            try {
+                youtubePlayer.stopVideo();
+            } catch (error) {
+                console.warn(
+                    "Unable to stop YouTube player:",
+                    error
+                );
+            }
+        }
+
+        youtubeIframe.src = "";
+
+        document.body.classList.add(
+            "youtube-disabled"
+        );
+
+        if (youtubeToggleBtn) {
+            youtubeToggleBtn.classList.add(
+                "off"
+            );
+
+            youtubeToggleBtn.title =
+                "Turn YouTube on";
+
+            youtubeToggleBtn.setAttribute(
+                "aria-label",
+                "Turn YouTube on"
+            );
+        }
+
+        return;
+    }
+
+    const enabled =
+        youtube.enabled !== false;
+
+    document.body.classList.toggle(
+        "youtube-disabled",
+        !enabled
+    );
+
+    if (youtubeToggleBtn) {
+        youtubeToggleBtn.classList.toggle(
+            "off",
+            !enabled
+        );
+
+        youtubeToggleBtn.title =
+            enabled
+                ? "Turn YouTube off"
+                : "Turn YouTube on";
+
+        youtubeToggleBtn.setAttribute(
+            "aria-label",
+            enabled
+                ? "Turn YouTube off"
+                : "Turn YouTube on"
+        );
+    }
+
+    if (
+        youtubePlayer &&
+        typeof youtubePlayer.cueVideoById ===
+            "function"
+    ) {
+        try {
+            youtubePlayer.cueVideoById({
+                videoId:
+                    youtube.videoId,
+                startSeconds:
+                    Math.floor(
+                        youtube.currentTime || 0
+                    )
+            });
+
+            return;
+        } catch (error) {
+            console.warn(
+                "Unable to cue saved YouTube video:",
+                error
+            );
+        }
+    }
+
+    youtubeIframe.src =
+        `https://www.youtube.com/embed/${encodeURIComponent(
+            youtube.videoId
+        )}?enablejsapi=1&start=${Math.floor(
+            youtube.currentTime || 0
+        )}`;
+}
 
 const notificationsPageBtn =
     document.getElementById("notificationsPageBtn");
@@ -247,8 +447,15 @@ function normalizeTemplate(template) {
         coins,
         selections,
         saviorState: template?.saviorState || "",
-        demonState: template?.demonState || "",
-        images: Array.isArray(template?.images)
+demonState: template?.demonState || "",
+
+youtube: {
+    videoId: template?.youtube?.videoId || "",
+    currentTime: Number(template?.youtube?.currentTime) || 0,
+    enabled: template?.youtube?.enabled !== false
+},
+
+images: Array.isArray(template?.images)
             ? template.images.map(image => ({
                 src: image?.src || "",
                 size: Number.isFinite(Number(image?.size)) ? Number(image.size) : 120,
@@ -275,8 +482,15 @@ function createTemplate() {
         selections: {},
         sliderStates: {},
         saviorState: sourceTemplate?.saviorState || "",
-        demonState: sourceTemplate?.demonState || "",
-        images: [],
+demonState: sourceTemplate?.demonState || "",
+
+youtube: {
+    videoId: "",
+    currentTime: 0,
+    enabled: true
+},
+
+images: [],
         coins: normalizeCoins(sourceTemplate ? sourceTemplate.coins : DEFAULT_COIN_DEFS)
     };
 
@@ -308,23 +522,30 @@ function saveTemplates() {
         return;
     }
 
-    if (typeof localStorage === "undefined") {
+    if (
+        typeof localStorage ===
+        "undefined"
+    ) {
         return;
     }
 
-    const localSavedAt = Date.now();
+    const localSavedAt =
+        Date.now();
 
-localStorage.setItem("opsTypingTemplates", JSON.stringify({
-    templates,
-    folders,
-    trash,
-    editingLocked,
-    darkMode,
-    activeTemplateId,
-    showTrash,
-    savedAt: localSavedAt
-}));
-
+    localStorage.setItem(
+        activeWorkspaceKey,
+        JSON.stringify({
+            templates,
+            folders,
+            trash,
+            editingLocked,
+            darkMode,
+            activeTemplateId,
+            showTrash,
+            savedAt:
+                localSavedAt
+        })
+    );
 }
 
 async function saveTemplatesToCloud() {
@@ -351,11 +572,11 @@ async function saveTemplatesToCloud() {
             cloudSaveNeedsAnotherPass = false;
 
             const localSaved =
-                JSON.parse(
-                    localStorage.getItem(
-                        "opsTypingTemplates"
-                    ) || "{}"
-                );
+    JSON.parse(
+        localStorage.getItem(
+            activeWorkspaceKey
+        ) || "{}"
+    );
 
             // Snapshot is created immediately before THIS upload,
             // so it is always the newest available state.
@@ -373,15 +594,20 @@ async function saveTemplatesToCloud() {
                         Date.now()
                 });
 
-            const {
-                data: { user },
-                error: userError
-            } =
-                await supabaseClient.auth.getUser();
+const {
+    data: { user },
+    error: userError
+} =
+    await supabaseClient.auth.getUser();
 
-            if (userError || !user) {
-                return;
-            }
+if (
+    userError ||
+    !user ||
+    !activeWorkspaceUserId ||
+    activeWorkspaceUserId !== user.id
+) {
+    return;
+}
 
             const { error } =
                 await supabaseClient
@@ -469,26 +695,79 @@ async function flushCloudSave() {
 }
 
 function loadTemplates() {
-    const saved = localStorage.getItem("opsTypingTemplates");
+    const saved =
+        localStorage.getItem(
+            activeWorkspaceKey
+        );
 
     if (!saved) {
         createTemplate();
         return;
-     }
+    }
 
-    const parsed = JSON.parse(saved);
+    let parsed;
+
+    try {
+        parsed =
+            JSON.parse(saved);
+    } catch (error) {
+        console.warn(
+            "Could not load workspace:",
+            error
+        );
+
+        createTemplate();
+        return;
+    }
+
     ensureFolders();
 
-    if (parsed.templates && parsed.templates.length) {
-        folders = Array.isArray(parsed.folders) && parsed.folders.length ? parsed.folders : folders;
+    if (
+        parsed.templates &&
+        parsed.templates.length
+    ) {
+        folders =
+            Array.isArray(
+                parsed.folders
+            ) &&
+            parsed.folders.length
+                ? parsed.folders
+                : folders;
+
         ensureFolders();
-        trash = Array.isArray(parsed.trash) ? parsed.trash : [];
+
+        trash =
+            Array.isArray(
+                parsed.trash
+            )
+                ? parsed.trash
+                : [];
+
         pruneTrash();
-        templates = parsed.templates.map(normalizeTemplate);
-        editingLocked = Boolean(parsed.editingLocked);
-        darkMode = Boolean(parsed.darkMode);
-        activeTemplateId = parsed.activeTemplateId || templates[0].id;
-        showTrash = Boolean(parsed.showTrash);
+
+        templates =
+            parsed.templates.map(
+                normalizeTemplate
+            );
+
+        editingLocked =
+            Boolean(
+                parsed.editingLocked
+            );
+
+        darkMode =
+            Boolean(
+                parsed.darkMode
+            );
+
+        activeTemplateId =
+            parsed.activeTemplateId ||
+            templates[0].id;
+
+        showTrash =
+            Boolean(
+                parsed.showTrash
+            );
     } else {
         createTemplate();
     }
@@ -533,9 +812,11 @@ async function loadTemplatesFromCloud() {
 let localData = {};
 
 try {
-    localData = JSON.parse(
-        localStorage.getItem("opsTypingTemplates") || "{}"
-    );
+localData = JSON.parse(
+    localStorage.getItem(
+        activeWorkspaceKey
+    ) || "{}"
+);
 } catch (error) {
     console.warn(
         "Could not read local save timestamp:",
@@ -591,25 +872,43 @@ if (
     ensureFolders();
     pruneTrash();
 
-    localStorage.setItem("opsTypingTemplates", JSON.stringify({
+localStorage.setItem(
+    activeWorkspaceKey,
+    JSON.stringify({
         templates,
         folders,
         trash,
         editingLocked,
         darkMode,
         activeTemplateId,
-        showTrash
-    }));
+        showTrash,
+        savedAt:
+            Number(
+                cloudData.savedAt
+            ) || Date.now()
+    })
+);
 
     console.log("Cloud load successful!");
     return true;
 }
 
 function moveTemplateToTrash(templateId) {
-    const index = templates.findIndex(template => template.id === templateId);
+    const index =
+        templates.findIndex(
+            template =>
+                template.id === templateId
+        );
+
     if (index < 0) return;
 
-    const [template] = templates.splice(index, 1);
+    if (activeTemplateId === templateId) {
+        saveYouTubeProgress();
+    }
+
+    const [template] =
+        templates.splice(index, 1);
+
     trash.push({
         id: template.id,
         template,
@@ -617,23 +916,44 @@ function moveTemplateToTrash(templateId) {
     });
 
     if (activeTemplateId === templateId) {
-    activeTemplateId = templates[0]?.id || null;
-}
+        activeTemplateId =
+            templates[0]?.id || null;
+    }
 
-saveAll();
-render();
+    saveAll();
+    render();
+
+    if (activeTemplateId) {
+        loadYouTubeForActiveTemplate();
+    }
 }
 
 function restoreTemplateFromTrash(trashId) {
-    const entry = trash.find(item => item.id === trashId);
+    saveYouTubeProgress();
+
+    const entry = trash.find(
+        item => item.id === trashId
+    );
+
     if (!entry) return;
 
-    const restored = { ...entry.template };
+    const restored = {
+        ...entry.template
+    };
+
     templates.push(restored);
-    trash = trash.filter(item => item.id !== trashId);
-    activeTemplateId = restored.id;
-   saveAll();
+
+    trash = trash.filter(
+        item => item.id !== trashId
+    );
+
+    activeTemplateId =
+        restored.id;
+
+    saveAll();
     render();
+
+    loadYouTubeForActiveTemplate();
 }
 
 function addFolder() {
@@ -1585,16 +1905,42 @@ function renderProjectsMenu() {
                         template.id
                     );
 
-                item.onclick = () => {
-                    activeTemplateId =
-                        template.id;
+item.onclick = () => {
+    const previousTemplate =
+        getActiveTemplate();
 
-                    showProjectsMenu =
-                        false;
+    if (
+        previousTemplate?.youtube &&
+        youtubePlayer &&
+        typeof youtubePlayer.getCurrentTime === "function"
+    ) {
+        try {
+            const currentTime =
+                youtubePlayer.getCurrentTime();
 
-                    saveTemplates();
-                    render();
-                };
+            if (Number.isFinite(currentTime)) {
+                previousTemplate.youtube.currentTime =
+                    Math.floor(currentTime);
+            }
+        } catch (error) {
+            console.warn(
+                "Unable to save previous YouTube position:",
+                error
+            );
+        }
+    }
+
+    activeTemplateId =
+        template.id;
+
+    showProjectsMenu =
+        false;
+
+    saveTemplates();
+    render();
+
+    loadYouTubeForActiveTemplate();
+};
 
                 const labelContent =
                     document.createElement(
@@ -2300,19 +2646,87 @@ const isSelected =
     !isHalfSelected;                card.className = "option-card" + (isSelected ? " selected" : "") + (isHalfSelected ? " slider-half-selected" : "") + (isFullSelected ? " slider-full-selected" : "") + halfDirectionClass;
                 pairCards.push(card);
 
-                const button = document.createElement("button");
-                button.className = "option-button";
-                button.textContent = option.label;
-                button.onclick = () => {
-                    if (suppressClick) {
-                        suppressClick = false;
-                        return;
-                    }
-                    const nextValue = activeTemplate.selections[coin.id] === option.value ? undefined : option.value;
-                    setTemplateSelection(activeTemplate, coin, nextValue);
-                    saveAll();
-                    render();
-                };
+                const cycleSimpleSelection = () => {
+    const currentState =
+        typeof activeTemplate.sliderStates?.[coin.id] === "number"
+            ? activeTemplate.sliderStates[coin.id]
+            : 2;
+
+    let nextState;
+
+    if (index === 0) {
+        if (currentState === 1) {
+            nextState = 0;
+        } else if (currentState === 0) {
+            nextState = 2;
+        } else {
+            nextState = 1;
+        }
+    } else {
+        if (currentState === 3) {
+            nextState = 4;
+        } else if (currentState === 4) {
+            nextState = 2;
+        } else {
+            nextState = 3;
+        }
+    }
+
+    const nextValue =
+        getSelectionValueFromSlider(
+            coin,
+            nextState
+        );
+
+    setTemplateSelection(
+        activeTemplate,
+        coin,
+        nextValue
+    );
+
+    activeTemplate.sliderStates[coin.id] =
+        nextState;
+
+    saveAll();
+    render();
+};
+
+const button = document.createElement("button");
+button.className = "option-button";
+button.textContent = option.label;
+
+button.onclick = (event) => {
+    event.stopPropagation();
+
+    if (viewMode) {
+        return;
+    }
+
+    if (coinSelectionMode === "simple") {
+        cycleSimpleSelection();
+        return;
+    }
+
+    if (suppressClick) {
+        suppressClick = false;
+        return;
+    }
+
+    const nextValue =
+        activeTemplate.selections[coin.id] ===
+        option.value
+            ? undefined
+            : option.value;
+
+    setTemplateSelection(
+        activeTemplate,
+        coin,
+        nextValue
+    );
+
+    saveAll();
+    render();
+};
 
                 const input = document.createElement("input");
 
@@ -2414,15 +2828,31 @@ card.onclick = () => {
         return;
     }
 
+    if (coinSelectionMode === "simple") {
+        cycleSimpleSelection();
+        return;
+    }
+
     if (suppressClick) {
         suppressClick = false;
         return;
     }
-                    const nextValue = activeTemplate.selections[coin.id] === option.value ? undefined : option.value;
-setTemplateSelection(activeTemplate, coin, nextValue);
-saveAll();
-render();
-                };
+
+    const nextValue =
+        activeTemplate.selections[coin.id] ===
+        option.value
+            ? undefined
+            : option.value;
+
+    setTemplateSelection(
+        activeTemplate,
+        coin,
+        nextValue
+    );
+
+    saveAll();
+    render();
+};
 
                 if (index === 0) {
                     card.appendChild(input);
@@ -2529,18 +2959,37 @@ const finalizeDragSelection = (marker) => {
                 render();
             };
 
-            pairRow.addEventListener("pointerdown", (event) => {
-                if (event.button !== 0) return;
-                if (!editingLocked && event.target.closest(".option-definition")) return;
+pairRow.addEventListener("pointerdown", (event) => {
+    if (coinSelectionMode !== "precise") {
+        return;
+    }
 
-                isDragSelecting = true;
-                hasDragMoved = false;
-                pairRow.setPointerCapture(event.pointerId);
-                const marker = getNearestMarker(event.clientX);
-                slider.value = String(marker);
-                applyPairVisualState(marker);
-                event.preventDefault();
-            });
+    if (event.button !== 0) return;
+
+    if (
+        !editingLocked &&
+        event.target.closest(".option-definition")
+    ) {
+        return;
+    }
+
+    isDragSelecting = true;
+    hasDragMoved = false;
+
+    pairRow.setPointerCapture(
+        event.pointerId
+    );
+
+    const marker =
+        getNearestMarker(event.clientX);
+
+    slider.value =
+        String(marker);
+
+    applyPairVisualState(marker);
+
+    event.preventDefault();
+});
 
             pairRow.addEventListener("pointermove", (event) => {
                 if (!isDragSelecting) return;
@@ -2871,8 +3320,31 @@ function wireEvents() {
 const projectsBtn = document.getElementById("projectsBtn");
 const lockBtn = document.getElementById("lockBtn");
 const themeBtn = document.getElementById("themeBtn");
-const viewModeLabel = document.getElementById("viewModeLabel");
-const backToDatabaseBtn = document.getElementById("backToDatabaseBtn");
+const settingsBtn = document.getElementById("settingsBtn");
+const settingsMenu = document.getElementById("settingsMenu");
+
+const coinSelectionModeSelect =
+    document.getElementById("coinSelectionMode");
+
+if (coinSelectionModeSelect) {
+    coinSelectionModeSelect.value =
+        coinSelectionMode;
+
+    coinSelectionModeSelect.addEventListener(
+        "change",
+        () => {
+            coinSelectionMode =
+                coinSelectionModeSelect.value;
+
+            localStorage.setItem(
+                "opsCoinSelectionMode",
+                coinSelectionMode
+            );
+        }
+    );
+}
+
+const viewModeLabel = document.getElementById("viewModeLabel");const backToDatabaseBtn = document.getElementById("backToDatabaseBtn");
 const duplicateTypingBtn = document.getElementById("duplicateTypingBtn");
 
 const databaseBtn = document.getElementById("databaseBtn");
@@ -2898,23 +3370,29 @@ if (duplicateTypingBtn) {
             return;
         }
 
-        const copiedTemplate = {
-            ...structuredClone(viewedTemplate),
+const copiedTemplate = {
+    ...structuredClone(viewedTemplate),
 
-            id:
-                Date.now().toString(36),
+    id:
+        Date.now().toString(36),
 
-            title:
-                (viewedTemplate.title ||
-                    "Untitled Typing") +
-                " (Copy)",
+    title:
+        (viewedTemplate.title ||
+            "Untitled Typing") +
+        " (Copy)",
 
-            publicTypingId: null,
-            publicVisibility: null,
+    publicTypingId: null,
+    publicVisibility: null,
 
-            folderId: "personal",
-            folder: "Personal"
-        };
+    youtube: {
+        videoId: "",
+        currentTime: 0,
+        enabled: true
+    },
+
+    folderId: "personal",
+    folder: "Personal"
+};
 
         templates.push(copiedTemplate);
 
@@ -3007,7 +3485,6 @@ if (duplicateTypingBtn) {
 
 if (viewMode) {
 
-
     clearBtn.style.display = "none";
     lockBtn.style.display = "none";
     databaseBtn.style.display = "none";
@@ -3018,12 +3495,43 @@ if (viewMode) {
     projectsBtn.style.display = "";
     themeBtn.style.display = "";
 
-    if (viewModeLabel) viewModeLabel.style.display = "";
-    if (backToDatabaseBtn) backToDatabaseBtn.style.display = "";
-    if (duplicateTypingBtn) duplicateTypingBtn.style.display = "";
+    if (viewModeLabel) {
+        viewModeLabel.style.display = "";
+    }
+
+    if (backToDatabaseBtn) {
+        backToDatabaseBtn.style.display = "";
+    }
+
+    if (duplicateTypingBtn) {
+        duplicateTypingBtn.style.display = "";
+    }
+
+    const viewYouTubeToggle =
+        document.getElementById(
+            "youtubeToggleBtn"
+        );
+
+    const viewYouTubePlayer =
+        document.getElementById(
+            "youtubePlayer"
+        );
+
+    if (viewYouTubeToggle) {
+        viewYouTubeToggle.style.display =
+            "none";
+    }
+
+    if (viewYouTubePlayer) {
+        viewYouTubePlayer.style.display =
+            "none";
+    }
+
+    document.body.classList.add(
+        "youtube-disabled"
+    );
 
 } else {
-
 
     clearBtn.style.display = "";
     lockBtn.style.display = "";
@@ -3034,28 +3542,65 @@ if (viewMode) {
     accountBtn.style.display = "";
     themeBtn.style.display = "";
 
-    if (viewModeLabel) viewModeLabel.style.display = "none";
-    if (backToDatabaseBtn) backToDatabaseBtn.style.display = "none";
-    if (duplicateTypingBtn) duplicateTypingBtn.style.display = "none";
+    if (viewModeLabel) {
+        viewModeLabel.style.display = "none";
+    }
+
+    if (backToDatabaseBtn) {
+        backToDatabaseBtn.style.display =
+            "none";
+    }
+
+    if (duplicateTypingBtn) {
+        duplicateTypingBtn.style.display =
+            "none";
+    }
+
+    const normalYouTubeToggle =
+        document.getElementById(
+            "youtubeToggleBtn"
+        );
+
+    const normalYouTubePlayer =
+        document.getElementById(
+            "youtubePlayer"
+        );
+
+    if (normalYouTubeToggle) {
+        normalYouTubeToggle.style.display =
+            "";
+    }
+
+    if (normalYouTubePlayer) {
+        normalYouTubePlayer.style.display =
+            "";
+    }
 }
 
-    templateTitleInput.addEventListener("input", () => {
-        const activeTemplate = getActiveTemplate();
-        if (activeTemplate) {
-activeTemplate.title = templateTitleInput.value;
-saveAll();
-render();
-        }
-    });
+templateTitleInput.addEventListener("input", () => {
+    const activeTemplate = getActiveTemplate();
+
+    if (activeTemplate) {
+        activeTemplate.title =
+            templateTitleInput.value;
+
+        saveAll();
+        render();
+    }
+});
 
 if (backToDatabaseBtn) {
-    backToDatabaseBtn.addEventListener("click", () => {
-        viewMode = false;
-        readOnlyMode = false;
-        viewedTemplate = null;
+    backToDatabaseBtn.addEventListener(
+        "click",
+        () => {
+            viewMode = false;
+            readOnlyMode = false;
+            viewedTemplate = null;
 
-        window.location.href = "database.html";
-    });
+            window.location.href =
+                "database.html";
+        }
+    );
 }
 
     accountBtn.addEventListener("click", (event) => {
@@ -3119,8 +3664,12 @@ notesArea.addEventListener("input", () => {
         const nextValue = `${before}${newline}• ${after}`;
         notesArea.value = nextValue;
         const caretPosition = start + newline.length + 2;
-        notesArea.setSelectionRange(caretPosition, caretPosition);
-        notesArea.focus();
+notesArea.setSelectionRange(caretPosition, caretPosition);
+notesArea.focus();
+
+requestAnimationFrame(() => {
+    notesArea.scrollTop = notesArea.scrollHeight;
+});
 
         const activeTemplate = getActiveTemplate();
         if (activeTemplate) {
@@ -3128,6 +3677,28 @@ activeTemplate.notes = nextValue;
 saveAll();
         }
     });
+
+    notesArea.addEventListener("scroll", () => {
+    const style = getComputedStyle(notesArea);
+    const lineHeight = parseFloat(style.lineHeight);
+
+    if (!lineHeight) return;
+
+    const maxScroll =
+        notesArea.scrollHeight - notesArea.clientHeight;
+
+    const distanceFromBottom =
+        maxScroll - notesArea.scrollTop;
+
+    if (distanceFromBottom <= 1) {
+        const cleanScroll =
+            Math.floor(maxScroll / lineHeight) * lineHeight;
+
+        if (Math.abs(notesArea.scrollTop - cleanScroll) > 0.25) {
+            notesArea.scrollTop = cleanScroll;
+        }
+    }
+});
 
     bulletBtn.addEventListener("click", () => {
         const start = notesArea.selectionStart;
@@ -3149,9 +3720,13 @@ saveAll();
         }
     });
 
-    newTemplateBtn.addEventListener("click", () => {
-        createTemplate();
-    });
+newTemplateBtn.addEventListener("click", () => {
+    saveYouTubeProgress();
+
+    createTemplate();
+
+    loadYouTubeForActiveTemplate();
+});
 
     clearBtn.addEventListener("click", () => {
         const activeTemplate = getActiveTemplate();
@@ -3211,6 +3786,22 @@ darkMode = !darkMode;
 saveAll();
 render();
     });
+
+    settingsBtn?.addEventListener("click", (event) => {
+    event.stopPropagation();
+
+    settingsMenu?.classList.toggle("open");
+});
+
+document.addEventListener("click", (event) => {
+    if (
+        settingsMenu?.classList.contains("open") &&
+        !settingsMenu.contains(event.target) &&
+        !settingsBtn?.contains(event.target)
+    ) {
+        settingsMenu.classList.remove("open");
+    }
+});
 
 async function publishTyping(publishVisibility) {
     const activeTemplate = getActiveTemplate();
@@ -3904,6 +4495,241 @@ async function openTypingAccessManager() {
     );
 }
 
+async function handlePendingGuestImport(user) {
+
+    if (!user?.id) {
+        return false;
+    }
+
+    const pendingKey =
+        `opsPendingGuestImport:${user.id}`;
+
+    /*
+        GOOGLE OAUTH CASE
+
+        Before redirecting to Google we could
+        save the guest workspace, but we did
+        not yet know which user would return.
+
+        Now we do.
+    */
+    const pendingGoogleRaw =
+        localStorage.getItem(
+            "opsPendingGoogleGuestImport"
+        );
+
+    if (
+        !localStorage.getItem(
+            pendingKey
+        ) &&
+        pendingGoogleRaw
+    ) {
+        try {
+            const pendingGoogle =
+                JSON.parse(
+                    pendingGoogleRaw
+                );
+
+            const createdAt =
+                new Date(
+                    user.created_at
+                ).getTime();
+
+            const startedAt =
+                Number(
+                    pendingGoogle.startedAt
+                );
+
+            /*
+                A newly-created Google account's
+                Supabase user creation time should
+                be essentially the same time as
+                this OAuth attempt.
+
+                Existing accounts have an older
+                created_at and MUST NOT receive
+                guest data.
+            */
+            const isBrandNewGoogleUser =
+                Number.isFinite(
+                    createdAt
+                ) &&
+                Number.isFinite(
+                    startedAt
+                ) &&
+                Math.abs(
+                    createdAt -
+                    startedAt
+                ) <
+                    5 * 60 * 1000;
+
+            if (
+                isBrandNewGoogleUser &&
+                pendingGoogle.workspace
+            ) {
+                localStorage.setItem(
+                    pendingKey,
+                    pendingGoogle.workspace
+                );
+            }
+
+        } catch (error) {
+            console.error(
+                "Google guest-import marker could not be read:",
+                error
+            );
+        }
+
+        /*
+            Whether this was a new or existing
+            Google account, this OAuth attempt
+            has now been resolved.
+        */
+        localStorage.removeItem(
+            "opsPendingGoogleGuestImport"
+        );
+    }
+
+    const pendingGuestRaw =
+        localStorage.getItem(
+            pendingKey
+        );
+
+    /*
+        No pending signup import for
+        this account.
+    */
+    if (!pendingGuestRaw) {
+        return false;
+    }
+
+    /*
+        Wait here until the user chooses.
+        This prevents startup/cloud sync
+        from running before the decision.
+    */
+    await new Promise(resolve => {
+
+        showPopup(
+            "Save Current Workspace?",
+            "Would you like to copy the guest workspace you had when you created this account into your new account?",
+            [
+               {
+    text: "Start Fresh",
+    action: async () => {
+
+        /*
+            Clear only this account's local
+            cache first.
+
+            Never touch the actual guest
+            workspace.
+        */
+        localStorage.removeItem(
+            activeWorkspaceKey
+        );
+
+        resetWorkspaceMemory();
+
+        /*
+            Safety check:
+
+            If this user somehow already has
+            cloud data, preserve and load it
+            instead of overwriting it with a
+            new blank workspace.
+        */
+        const cloudResult =
+            await loadTemplatesFromCloud();
+
+        if (cloudResult === false) {
+
+            /*
+                Truly new account:
+                create its fresh blank workspace
+                and save that to Supabase.
+            */
+            loadTemplates();
+
+            await saveTemplatesToCloud();
+
+        } else {
+
+            console.log(
+                "Existing cloud workspace found. Preserving it instead of creating a blank workspace."
+            );
+        }
+
+        /*
+            The signup decision has now been
+            handled for this account.
+        */
+        localStorage.removeItem(
+            pendingKey
+        );
+
+        resolve();
+    }
+},
+                {
+                    text: "Keep & Save",
+                    action: async () => {
+
+                        try {
+                            const guestData =
+                                JSON.parse(
+                                    pendingGuestRaw
+                                );
+
+                            guestData.savedAt =
+                                Date.now();
+
+                            /*
+                                Copy the captured guest
+                                snapshot into this account's
+                                own local workspace.
+                            */
+                            localStorage.setItem(
+                                activeWorkspaceKey,
+                                JSON.stringify(
+                                    guestData
+                                )
+                            );
+
+                            localStorage.removeItem(
+                                pendingKey
+                            );
+
+                            resetWorkspaceMemory();
+
+                            loadTemplates();
+
+                            await saveTemplatesToCloud();
+
+                            resolve();
+
+                        } catch (error) {
+
+                            console.error(
+                                "Pending guest import failed:",
+                                error
+                            );
+
+                            showError(
+                                "Import Failed",
+                                "Your guest workspace was left unchanged."
+                            );
+                        }
+                    }
+                }
+            ]
+        );
+    });
+
+    return true;
+}
+
+
 async function init() {
     
     typeLibrary = generateTypeLibrary();
@@ -3914,7 +4740,42 @@ if (copiedFromDatabase === "1") {
     showProjectsMenu = true;
 }
 
-loadTemplates();
+const {
+    data: {
+        session: initialSession
+    }
+} =
+    await supabaseClient.auth.getSession();
+
+const initialUser =
+    initialSession?.user || null;
+
+setWorkspaceForUser(
+    initialUser
+);
+
+let handledPendingGuestImport =
+    false;
+
+if (initialUser) {
+    handledPendingGuestImport =
+        await handlePendingGuestImport(
+            initialUser
+        );
+}
+
+/*
+    Normal startup only loads the workspace
+    here when there was no pending
+    new-account guest decision.
+
+    The pending-import handler already
+    loads the correct account workspace
+    after the user chooses.
+*/
+if (!handledPendingGuestImport) {
+    loadTemplates();
+}
 
 await checkViewMode();
 
@@ -3988,34 +4849,10 @@ const coinContainer =
 const resultsPanel =
     document.querySelector(".results-panel");
 
-const youtubePlayer =
+const youtubePlayerElement =
     document.getElementById("youtubePlayer");
 
-    const savedYouTubeVideoId =
-    localStorage.getItem(
-        "opsLastYouTubeVideoId"
-    );
-
-const savedYouTubeTime =
-    Number(
-        localStorage.getItem(
-            "opsLastYouTubeTime"
-        )
-    ) || 0;
-
-if (
-    savedYouTubeVideoId &&
-    youtubeIframe
-) {
-    youtubeIframe.src =
-        `https://www.youtube.com/embed/${encodeURIComponent(
-            savedYouTubeVideoId
-        )}?enablejsapi=1&start=${Math.floor(
-            savedYouTubeTime
-        )}`;
-}
-
-function setYouTubeEnabled(enabled) {
+function setYouTubeEnabled(enabled, persist = true) {
     document.body.classList.toggle(
         "youtube-disabled",
         !enabled
@@ -4040,22 +4877,29 @@ function setYouTubeEnabled(enabled) {
         );
     }
 
-    localStorage.setItem(
-        "opsYouTubeEnabled",
-        enabled ? "1" : "0"
-    );
+    if (persist) {
+        const activeTemplate =
+            getActiveTemplate();
+
+        if (activeTemplate?.youtube) {
+            activeTemplate.youtube.enabled =
+                enabled;
+
+            saveAll();
+        }
+    }
 }
 
 let youtubeExpanded = false;
 
 function setYouTubeExpanded(expanded) {
-    if (
-        !youtubePlayer ||
-        !youtubeExpandBtn ||
-        !centerPanel
-    ) {
-        return;
-    }
+if (
+    !youtubePlayerElement ||
+    !youtubeExpandBtn ||
+    !centerPanel
+) {
+    return;
+}
 
     youtubeExpanded = expanded;
 
@@ -4149,14 +4993,7 @@ if (youtubeExpandBtn) {
     );
 }
 
-const savedYouTubeEnabled =
-    localStorage.getItem(
-        "opsYouTubeEnabled"
-    );
-
-setYouTubeEnabled(
-    savedYouTubeEnabled !== "0"
-);
+loadYouTubeForActiveTemplate();
 
 if (youtubeToggleBtn) {
     youtubeToggleBtn.addEventListener(
@@ -4218,48 +5055,21 @@ function attachYouTubePlayerTracking() {
                             saveYouTubeProgress();
                         }
 
-                        if (
-                            event.data ===
-                            YT.PlayerState.ENDED
-                        ) {
-                            localStorage.setItem(
-                                "opsLastYouTubeTime",
-                                "0"
-                            );
-                        }
-                    }
+if (
+    event.data ===
+    YT.PlayerState.ENDED
+) {
+    const activeTemplate =
+        getActiveTemplate();
+
+    if (activeTemplate?.youtube) {
+        activeTemplate.youtube.currentTime = 0;
+        saveAll();
+    }
+}                    }
                 }
             }
         );
-}
-
-function saveYouTubeProgress() {
-    if (
-        !youtubePlayer ||
-        typeof youtubePlayer.getCurrentTime !==
-            "function"
-    ) {
-        return;
-    }
-
-    try {
-        const currentTime =
-            youtubePlayer.getCurrentTime();
-
-        if (Number.isFinite(currentTime)) {
-            localStorage.setItem(
-                "opsLastYouTubeTime",
-                String(
-                    Math.floor(currentTime)
-                )
-            );
-        }
-    } catch (error) {
-        console.warn(
-            "Unable to save YouTube position:",
-            error
-        );
-    }
 }
 
 function startYouTubeProgressTracking() {
@@ -4425,15 +5235,18 @@ youtubeResultItems.forEach(
                     return;
                 }
 
-                localStorage.setItem(
-    "opsLastYouTubeVideoId",
-    videoId
-);
+const activeTemplate =
+    getActiveTemplate();
 
-localStorage.setItem(
-    "opsLastYouTubeTime",
-    "0"
-);
+if (activeTemplate?.youtube) {
+    activeTemplate.youtube.videoId =
+        videoId;
+
+    activeTemplate.youtube.currentTime =
+        0;
+
+    saveAll();
+}
 
 youtubeIframe.src =
                     `https://www.youtube.com/embed/${encodeURIComponent(
@@ -4855,33 +5668,44 @@ async function loadYouTubeChannelVideos(
                 snippet.channelTitle ||
                 channelTitle;
 
-            item.addEventListener(
-                "click",
-                () => {
-                    if (!youtubeIframe) {
-                        return;
-                    }
+item.addEventListener(
+    "click",
+    () => {
+        if (!youtubeIframe) {
+            return;
+        }
 
-                    localStorage.setItem(
-    "opsLastYouTubeVideoId",
-    videoId
+        const activeTemplate =
+            getActiveTemplate();
+
+        if (activeTemplate?.youtube) {
+            activeTemplate.youtube.videoId =
+                videoId;
+
+            activeTemplate.youtube.currentTime =
+                0;
+
+            activeTemplate.youtube.enabled =
+                true;
+
+            saveAll();
+        }
+
+        setYouTubeEnabled(
+            true,
+            false
+        );
+
+        youtubeIframe.src =
+            `https://www.youtube.com/embed/${encodeURIComponent(
+                videoId
+            )}?enablejsapi=1&autoplay=1`;
+
+        youtubeBrowsePanel
+            ?.classList
+            .remove("open");
+    }
 );
-
-localStorage.setItem(
-    "opsLastYouTubeTime",
-    "0"
-);
-
-youtubeIframe.src =
-                        `https://www.youtube.com/embed/${encodeURIComponent(
-                            videoId
-                        )}?enablejsapi=1&autoplay=1`;
-
-                    youtubeBrowsePanel
-                        ?.classList
-                        .remove("open");
-                }
-            );
 
             resultsContainer.appendChild(
                 item
@@ -5007,33 +5831,44 @@ async function searchYouTube(query) {
                     snippet.channelTitle ||
                     "";
 
-                item.addEventListener(
-                    "click",
-                    () => {
-                        if (!youtubeIframe) {
-                            return;
-                        }
+item.addEventListener(
+    "click",
+    () => {
+        if (!youtubeIframe) {
+            return;
+        }
 
-                        localStorage.setItem(
-    "opsLastYouTubeVideoId",
-    videoId
+        const activeTemplate =
+            getActiveTemplate();
+
+        if (activeTemplate?.youtube) {
+            activeTemplate.youtube.videoId =
+                videoId;
+
+            activeTemplate.youtube.currentTime =
+                0;
+
+            activeTemplate.youtube.enabled =
+                true;
+
+            saveAll();
+        }
+
+        setYouTubeEnabled(
+            true,
+            false
+        );
+
+        youtubeIframe.src =
+            `https://www.youtube.com/embed/${encodeURIComponent(
+                videoId
+            )}?enablejsapi=1&autoplay=1`;
+
+        youtubeBrowsePanel
+            ?.classList
+            .remove("open");
+    }
 );
-
-localStorage.setItem(
-    "opsLastYouTubeTime",
-    "0"
-);
-
-youtubeIframe.src =
-                            `https://www.youtube.com/embed/${encodeURIComponent(
-                                videoId
-                            )}?enablejsapi=1&autoplay=1`;
-
-                        youtubeBrowsePanel
-                            ?.classList
-                            .remove("open");
-                    }
-                );
 
                 resultsContainer.appendChild(
                     item
@@ -5083,15 +5918,18 @@ if (youtubeSearchInput) {
                     );
                 }
 
-                localStorage.setItem(
-    "opsLastYouTubeVideoId",
-    pastedVideoId
-);
+const activeTemplate =
+    getActiveTemplate();
 
-localStorage.setItem(
-    "opsLastYouTubeTime",
-    "0"
-);
+if (activeTemplate?.youtube) {
+    activeTemplate.youtube.videoId =
+        pastedVideoId;
+
+    activeTemplate.youtube.currentTime =
+        0;
+
+    saveAll();
+}
 
 youtubeIframe.src =
     `https://www.youtube.com/embed/${encodeURIComponent(
@@ -5432,40 +6270,226 @@ const usernameInput = document.getElementById("accountUsernameInput");
 const passwordInput = document.getElementById("accountPasswordInput");
 const statusBox = document.getElementById("accountStatus");
 
-document.getElementById("createAccountBtn").onclick = async () => {
-    const email = emailInput.value;
-    const username = usernameInput.value;
-    const password = passwordInput.value;
+document.getElementById(
+    "createAccountBtn"
+).onclick = async () => {
 
-    const { data, error } = await supabaseClient.auth.signUp({
-        email,
-        password
-    });
+    const email =
+        emailInput.value;
+
+    const username =
+        usernameInput.value;
+
+    const password =
+        passwordInput.value;
+
+    /*
+        Capture the guest workspace BEFORE
+        creating or switching to the account.
+    */
+    const guestWorkspaceRaw =
+        localStorage.getItem(
+            GUEST_WORKSPACE_KEY
+        );
+
+    const { data, error } =
+        await supabaseClient.auth.signUp({
+            email,
+            password
+        });
 
     if (error) {
-        statusBox.textContent = error.message;
+        statusBox.textContent =
+            error.message;
+
         console.error(error);
-        showError("Account Failed", error.message);
+
+        showError(
+            "Account Failed",
+            error.message
+        );
+
         return;
     }
 
-    const { error: profileError } = await supabaseClient
+    if (!data?.user) {
+        showError(
+            "Account Failed",
+            "The account was created without a usable user record."
+        );
+
+        return;
+    }
+
+/*
+    If email confirmation is required,
+    the new user exists but is not yet
+    authenticated.
+
+    Save everything needed for first login
+    and do NOT write to protected tables yet.
+*/
+if (!data.session) {
+
+    if (guestWorkspaceRaw) {
+        localStorage.setItem(
+            `opsPendingGuestImport:${data.user.id}`,
+            guestWorkspaceRaw
+        );
+    }
+
+    localStorage.setItem(
+        `opsPendingUsername:${data.user.id}`,
+        username
+    );
+
+    statusBox.textContent =
+        "Account created. Check your email to finish signing in.";
+
+    showPopup(
+        "Account Created",
+        "Your guest workspace is safe. After you confirm your account and sign in, OP Studio will ask whether you want to save it to your new account.",
+        [
+            {
+                text: "OK"
+            }
+        ]
+    );
+
+    return;
+}
+
+
+/*
+    Immediate-session signup:
+    now it is safe to create the profile.
+*/
+const { error: profileError } =
+    await supabaseClient
         .from("profiles")
         .insert([
             {
                 id: data.user.id,
-                username: username
+                username
             }
         ]);
 
-    if (profileError) {
-        console.error(profileError);
-        showError("Profile Failed", profileError.message);
-        return;
-    }
+if (profileError) {
+    console.error(
+        profileError
+    );
 
-    statusBox.textContent = "Account created!";
-    showSuccess("Account Created");
+    showError(
+        "Profile Failed",
+        profileError.message
+    );
+
+    return;
+}
+
+    const finishNewAccount =
+        async keepGuestWorkspace => {
+
+            setWorkspaceForUser(
+                data.user
+            );
+
+            resetWorkspaceMemory();
+
+            if (
+                keepGuestWorkspace &&
+                guestWorkspaceRaw
+            ) {
+                try {
+                    const guestData =
+                        JSON.parse(
+                            guestWorkspaceRaw
+                        );
+
+                    /*
+                        Give the imported account
+                        copy a fresh timestamp.
+                    */
+                    guestData.savedAt =
+                        Date.now();
+
+                    localStorage.setItem(
+                        activeWorkspaceKey,
+                        JSON.stringify(
+                            guestData
+                        )
+                    );
+
+                    loadTemplates();
+
+                } catch (error) {
+                    console.error(
+                        "Guest workspace import failed:",
+                        error
+                    );
+
+                    showError(
+                        "Import Failed",
+                        "Your guest workspace was left unchanged."
+                    );
+
+                    return;
+                }
+
+            } else {
+
+                /*
+                    Brand-new account:
+                    start with a completely separate
+                    blank account workspace.
+                */
+                localStorage.removeItem(
+                    activeWorkspaceKey
+                );
+
+                loadTemplates();
+            }
+
+            await saveTemplatesToCloud();
+
+            await loadAccountInfo();
+
+            render();
+
+            loadYouTubeForActiveTemplate();
+
+            statusBox.textContent =
+                "Account created!";
+
+            showSuccess(
+                keepGuestWorkspace
+                    ? "Workspace Saved"
+                    : "Fresh Account Created"
+            );
+        };
+
+    showPopup(
+        "Save Current Workspace?",
+        "Would you like to copy your current guest workspace into your new account?",
+        [
+            {
+                text: "Start Fresh",
+                action: async () => {
+                    await finishNewAccount(
+                        false
+                    );
+                }
+            },
+            {
+                text: "Keep & Save",
+                action: async () => {
+                    await finishNewAccount(
+                        true
+                    );
+                }
+            }
+        ]
+    );
 };
 
 document.getElementById("loginAccountBtn").onclick = async () => {
@@ -5490,34 +6514,107 @@ document.getElementById("loginAccountBtn").onclick = async () => {
     console.log("LOGIN HANDLER REACHED");
     console.log(data);
 
-    console.log("Starting cloud load after login...");
+console.log(
+    "Starting account workspace after login..."
+);
 
+// Stop using the guest workspace.
+// From this point forward local saves belong
+// only to this signed-in account.
+setWorkspaceForUser(
+    data.user
+);
+
+resetWorkspaceMemory();
+
+// Load this account's local cache first,
+// if one exists.
+loadTemplates();
+
+// Then resolve it against this account's
+// Supabase workspace.
+const cloudResult =
     await loadTemplatesFromCloud();
-    loadAccountInfo();
-    render();
+
+if (cloudResult === false) {
+    await saveTemplatesToCloud();
+} else if (
+    cloudResult === "local-newer"
+) {
+    await saveTemplatesToCloud();
+}
+
+await createProfileIfMissing();
+await loadAccountInfo();
+
+render();
+
+loadYouTubeForActiveTemplate();
 };
 
-document.getElementById("logoutAccountBtn").onclick = async () => {
-    showConfirm("Log out?", async () => {
-        const { error } = await supabaseClient.auth.signOut();
+document.getElementById(
+    "logoutAccountBtn"
+).onclick = async () => {
+    showConfirm(
+        "Log out?",
+        async () => {
 
-        if (error) {
-            console.error("Logout failed:", error);
-            return;
+            // Finish saving the signed-in
+            // account before leaving it.
+            await flushCloudSave();
+
+            const { error } =
+                await supabaseClient
+                    .auth
+                    .signOut();
+
+            if (error) {
+                console.error(
+                    "Logout failed:",
+                    error
+                );
+                return;
+            }
+
+            // Switch away from the account
+            // and into the separate guest workspace.
+            setWorkspaceForUser(
+                null
+            );
+
+            resetWorkspaceMemory();
+
+            loadTemplates();
+
+            accountEmailInput.value =
+                "";
+
+            usernameInput.value =
+                "";
+
+            passwordInput.value =
+                "";
+
+            accountEmailInput.disabled =
+                false;
+
+            usernameInput.disabled =
+                false;
+
+            accountStatus.textContent =
+                "Not logged in.";
+
+            render();
+
+            loadYouTubeForActiveTemplate();
+
+            showSuccess(
+                "Logged Out"
+            );
+
+            await loadAccountInfo();
         }
-
-        accountEmailInput.value = "";
-        usernameInput.value = "";
-        passwordInput.value = "";
-
-        accountEmailInput.disabled = false;
-        usernameInput.disabled = false;
-
-        accountStatus.textContent = "Not logged in.";
-
-        showSuccess("Logged Out");
-        await loadAccountInfo();
-    });
+    );
 };
 
 async function loadAccountInfo() {
@@ -5536,11 +6633,11 @@ async function loadAccountInfo() {
         return;
     }
 
-    const { data: profile, error } = await supabaseClient
-        .from("profiles")
-        .select("username")
-        .eq("id", user.id)
-        .single();
+const { data: profile, error } = await supabaseClient
+    .from("profiles")
+    .select("username")
+    .eq("id", user.id)
+    .maybeSingle();
 
     if (error) {
         console.error(error);
@@ -5614,22 +6711,79 @@ if (showPasswordBtn) {
     });
 }
 
-const googleLoginBtn = document.getElementById("googleLoginBtn");
+const googleLoginBtn =
+    document.getElementById(
+        "googleLoginBtn"
+    );
 
 if (googleLoginBtn) {
-    googleLoginBtn.onclick = async () => {
-        const { data, error } = await supabaseClient.auth.signInWithOAuth({
-            provider: "google",
-            options: {
-                redirectTo: "https://stellarfronts.github.io/OP-Studio/"
-            }
-        });
 
-        if (error) {
-            console.error(error);
-            showAccountPopup("Google login failed: " + error.message);
-        }
-    };
+    googleLoginBtn.onclick =
+        async () => {
+
+            /*
+                Capture the current guest workspace
+                before Google redirects away.
+
+                We do NOT know the returned user ID
+                yet, so this is temporarily generic.
+            */
+            const guestWorkspaceRaw =
+                localStorage.getItem(
+                    GUEST_WORKSPACE_KEY
+                );
+
+            if (guestWorkspaceRaw) {
+                localStorage.setItem(
+                    "opsPendingGoogleGuestImport",
+                    JSON.stringify({
+                        workspace:
+                            guestWorkspaceRaw,
+                        startedAt:
+                            Date.now()
+                    })
+                );
+            } else {
+                localStorage.removeItem(
+                    "opsPendingGoogleGuestImport"
+                );
+            }
+
+            const { data, error } =
+                await supabaseClient
+                    .auth
+                    .signInWithOAuth({
+                        provider: "google",
+                        options: {
+                            redirectTo:
+                                window.location.origin +
+                                window.location.pathname,
+
+                            queryParams: {
+                                prompt:
+                                    "select_account"
+                            }
+                        }
+                    });
+
+            if (error) {
+
+                /*
+                    OAuth never started successfully,
+                    so discard the temporary marker.
+                */
+                localStorage.removeItem(
+                    "opsPendingGoogleGuestImport"
+                );
+
+                console.error(error);
+
+                showAccountPopup(
+                    "Google login failed: " +
+                    error.message
+                );
+            }
+        };
 }
 
 document.addEventListener(
@@ -5642,30 +6796,108 @@ document.addEventListener(
 
 async function createProfileIfMissing() {
     const {
-        data: { user }
-    } = await supabaseClient.auth.getUser();
+        data: { user },
+        error: userError
+    } =
+        await supabaseClient.auth.getUser();
 
-    if (!user) return;
+    if (userError || !user) {
+        return;
+    }
 
-    const { data: profile } = await supabaseClient
-        .from("profiles")
-        .select("id")
-        .eq("id", user.id)
-        .maybeSingle();
+    const {
+        data: profile,
+        error: profileLookupError
+    } =
+        await supabaseClient
+            .from("profiles")
+            .select("id")
+            .eq("id", user.id)
+            .maybeSingle();
 
-    if (!profile) {
-        const { error } = await supabaseClient
+    if (profileLookupError) {
+        console.error(
+            "Profile lookup failed:",
+            profileLookupError
+        );
+
+        return;
+    }
+
+    /*
+        Profile already exists.
+
+        If an old pending username marker
+        survived for some reason, it is no
+        longer needed.
+    */
+    if (profile) {
+        localStorage.removeItem(
+            `opsPendingUsername:${user.id}`
+        );
+
+        return;
+    }
+
+    /*
+        Email-confirmation signup stores the
+        username before the user has a session.
+
+        On the user's first authenticated login,
+        recover that username here.
+    */
+    const pendingUsernameKey =
+        `opsPendingUsername:${user.id}`;
+
+    const pendingUsername =
+        (
+            localStorage.getItem(
+                pendingUsernameKey
+            ) || ""
+        ).trim();
+
+    const fallbackUsername =
+        user.email
+            ? user.email.split("@")[0]
+            : `user-${user.id.slice(0, 8)}`;
+
+    const username =
+        pendingUsername ||
+        fallbackUsername;
+
+    const { error: insertError } =
+        await supabaseClient
             .from("profiles")
             .insert([
                 {
                     id: user.id,
-                    username: user.email.split("@")[0]
+                    username
                 }
             ]);
 
-        if (error) {
-            console.error("Profile creation failed:", error);
-        }
-    }
-}
+    if (insertError) {
+        console.error(
+            "Profile creation failed:",
+            insertError
+        );
 
+        /*
+            Keep the pending username marker.
+            That lets a later login try again
+            instead of losing the chosen name.
+        */
+        return;
+    }
+
+    /*
+        Only remove this after the profile
+        was successfully created.
+    */
+    localStorage.removeItem(
+        pendingUsernameKey
+    );
+
+    console.log(
+        "Missing profile created successfully."
+    );
+}
