@@ -7,6 +7,14 @@
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+<script>
+    if (
+        localStorage.getItem("opsDarkMode") === "true"
+    ) {
+        document.body.classList.add("dark");
+        document.documentElement.style.colorScheme = "dark";
+    }
+</script>
 <header class="app-header">
     <div class="app-brand">
         OP Studio
@@ -51,6 +59,23 @@
 
 <main class="database-page">
     <section class="database-card">
+
+        <div class="database-content-tabs">
+            <button
+                id="databaseTypingsTab"
+                class="database-content-tab active"
+                type="button">
+                Typings
+            </button>
+
+            <button
+                id="databaseDefinitionsTab"
+                class="database-content-tab"
+                type="button">
+                Definitions
+            </button>
+        </div>
+
         <div class="database-card-header">
             <h1>Published Typings</h1>
             <p>Browse public typing entries shared from the studio.</p>
@@ -96,6 +121,13 @@
             <option value="year">Past Year</option>
         </select>
 
+<button
+    id="databaseBookmarkFilter"
+    type="button"
+    data-active="false">
+    Bookmarks
+</button>
+
         <button
             id="clearDatabaseFilters"
             type="button">
@@ -105,7 +137,35 @@
     </div>
 
 </div>
-        <div id="databaseEntries" class="database-entry-list">Loading public entries…</div>
+
+        <div id="typingsDatabaseSection">
+            <div
+                id="databaseEntries"
+                class="database-entry-list">
+                Loading public entries…
+            </div>
+        </div>
+
+<div
+    id="definitionsDatabaseSection"
+    style="display: none;">
+
+    <div class="database-card-header">
+        <h1>Published Definitions</h1>
+        <p>
+            Browse and copy coin definition sets
+            shared by other users.
+        </p>
+    </div>
+
+    <div
+        id="definitionEntries"
+        class="database-entry-list">
+        Loading public definitions…
+    </div>
+
+</div>
+
     </section>
 </main>
 

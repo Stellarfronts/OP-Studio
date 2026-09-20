@@ -15,27 +15,57 @@
 
         <div class="profile-header">
 
-            <button
-                id="backToDatabaseBtn"
-                class="profile-back-btn"
-                type="button">
-                ← Database
-            </button>
+            <div class="profile-back-actions">
+
+    <button
+        id="backToTypingBtn"
+        class="profile-back-btn"
+        type="button">
+        ← Typing
+    </button>
+
+    <button
+        id="backToDatabaseBtn"
+        class="profile-back-btn"
+        type="button">
+        ← Database
+    </button>
+
+</div>
 
             <section id="profileHeader">
-    <h1 id="profileUsername">Loading profile...</h1>
+<h1 id="profileUsername">Loading profile...</h1>
 
-    <div id="profileBio"></div>
+<div id="profileBio"></div>
+
+<button
+    id="editProfileBtn"
+    type="button"
+    style="display: none;">
+    Edit Profile
+</button>
 
 <div id="profileBioEditor" style="display: none;">
+
+    <input
+        id="profileUsernameInput"
+        type="text"
+        placeholder="Username"
+        maxlength="50">
+
     <textarea
         id="profileBioInput"
         placeholder="Write something about yourself..."
         maxlength="500"></textarea>
 
-    <button id="saveBioBtn" type="button">
-        Save Bio
+    <button id="saveProfileBtn" type="button">
+        Save
     </button>
+
+    <button id="cancelProfileEditBtn" type="button">
+        Cancel
+    </button>
+
 </div>
 
             <div id="profileStatus"></div>
@@ -83,15 +113,84 @@
 
 </div>
 
-        <section class="profile-typings-section">
+<section class="profile-typings-section">
 
-            <h2>Published Typings</h2>
+    <h2>Published Typings</h2>
 
-            <div id="profileTypings">
-                Loading typings...
-            </div>
+    <div class="profile-typing-controls">
 
-        </section>
+        <div class="profile-typing-search-row">
+
+            <input
+                id="profileTypingSearch"
+                type="search"
+                placeholder="Search typings...">
+
+            <select id="profileTypingSort">
+                <option value="newest">Newest</option>
+                <option value="oldest">Oldest</option>
+                <option value="title-asc">Title A–Z</option>
+                <option value="title-desc">Title Z–A</option>
+            </select>
+
+        </div>
+
+        <div class="profile-typing-filter-row">
+
+            <select id="profileTypingTypeFilter">
+                <option value="all">
+                    All Types
+                </option>
+            </select>
+
+            <select id="profileTypingPossibilitiesFilter">
+                <option value="all">
+                    All Result Counts
+                </option>
+                <option value="1">1 Result</option>
+                <option value="2-5">2–5 Results</option>
+                <option value="6-10">6–10 Results</option>
+                <option value="11-20">11–20 Results</option>
+                <option value="21+">21+ Results</option>
+            </select>
+
+            <select id="profileTypingDateFilter">
+                <option value="all">
+                    Any Date
+                </option>
+                <option value="today">Today</option>
+                <option value="week">
+                    Past Week
+                </option>
+                <option value="month">
+                    Past Month
+                </option>
+                <option value="year">
+                    Past Year
+                </option>
+            </select>
+
+            <button
+                id="clearProfileTypingFilters"
+                type="button">
+                Clear Filters
+            </button>
+
+            <button
+                id="profileRevealAllTypes"
+                type="button">
+                Reveal All Types
+            </button>
+
+        </div>
+
+    </div>
+
+    <div id="profileTypings">
+        Loading typings...
+    </div>
+
+</section>
 
     </main>
 

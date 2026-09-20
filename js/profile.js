@@ -2,8 +2,40 @@ console.log("Profile page loaded");
 
 const profileUsername = document.getElementById("profileUsername");
 const profileTypings = document.getElementById("profileTypings");
-const backToDatabaseBtn = document.getElementById("backToDatabaseBtn");
+const profileTypingSearch =
+    document.getElementById("profileTypingSearch");
 
+const profileTypingSort =
+    document.getElementById("profileTypingSort");
+
+const profileTypingTypeFilter =
+    document.getElementById("profileTypingTypeFilter");
+
+const profileTypingPossibilitiesFilter =
+    document.getElementById(
+        "profileTypingPossibilitiesFilter"
+    );
+
+const profileTypingDateFilter =
+    document.getElementById("profileTypingDateFilter");
+
+const clearProfileTypingFilters =
+    document.getElementById(
+        "clearProfileTypingFilters"
+    );
+
+const profileRevealAllTypes =
+    document.getElementById(
+        "profileRevealAllTypes"
+    );
+
+let profilePublishedTypings = [];
+let profileRevealAllActive = false;
+const backToDatabaseBtn =
+    document.getElementById("backToDatabaseBtn");
+
+const backToTypingBtn =
+    document.getElementById("backToTypingBtn");
 const profileTypingCount = document.getElementById("profileTypingCount");
 const profileFollowerCount = document.getElementById("profileFollowerCount");
 const profileFollowingCount = document.getElementById("profileFollowingCount");
@@ -16,11 +48,27 @@ const profileMessageBtn =
     document.getElementById("profileBlockBtn");
     const profileTypingNotifyBtn =
     document.getElementById("profileTypingNotifyBtn");
-const profileBio = document.getElementById("profileBio");
-const profileBioEditor = document.getElementById("profileBioEditor");
-const profileBioInput = document.getElementById("profileBioInput");
-const saveBioBtn = document.getElementById("saveBioBtn");
-let profileUserId = null;
+const profileBio =
+    document.getElementById("profileBio");
+
+const profileBioEditor =
+    document.getElementById("profileBioEditor");
+
+const profileBioInput =
+    document.getElementById("profileBioInput");
+
+const profileUsernameInput =
+    document.getElementById("profileUsernameInput");
+
+const editProfileBtn =
+    document.getElementById("editProfileBtn");
+
+const saveProfileBtn =
+    document.getElementById("saveProfileBtn");
+
+const cancelProfileEditBtn =
+    document.getElementById("cancelProfileEditBtn");
+    let profileUserId = null;
 let currentUser = null;
 
 
@@ -82,10 +130,22 @@ if (profileBio) {
         profile.bio || "No bio yet.";
 }
 
-if (currentUser && currentUser.id === profileUserId) {
+if (
+    currentUser &&
+    currentUser.id === profileUserId
+) {
+
+    if (editProfileBtn) {
+        editProfileBtn.style.display = "";
+    }
 
     if (profileBioEditor) {
-        profileBioEditor.style.display = "block";
+        profileBioEditor.style.display = "none";
+    }
+
+    if (profileUsernameInput) {
+        profileUsernameInput.value =
+            profile.username || "";
     }
 
     if (profileBioInput) {
@@ -95,11 +155,59 @@ if (currentUser && currentUser.id === profileUserId) {
 
 } else {
 
+    if (editProfileBtn) {
+        editProfileBtn.style.display = "none";
+    }
+
     if (profileBioEditor) {
         profileBioEditor.style.display = "none";
     }
 }
 
+function openProfileEditor() {
+
+    if (
+        !currentUser ||
+        currentUser.id !== profileUserId
+    ) {
+        return;
+    }
+
+    if (profileBioEditor) {
+        profileBioEditor.style.display = "block";
+    }
+
+    if (editProfileBtn) {
+        editProfileBtn.style.display = "none";
+    }
+}
+
+
+function closeProfileEditor() {
+
+    if (profileBioEditor) {
+        profileBioEditor.style.display = "none";
+    }
+
+    if (editProfileBtn) {
+        editProfileBtn.style.display = "";
+    }
+}
+
+
+if (editProfileBtn) {
+    editProfileBtn.addEventListener(
+        "click",
+        openProfileEditor
+    );
+}
+
+if (cancelProfileEditBtn) {
+    cancelProfileEditBtn.addEventListener(
+        "click",
+        closeProfileEditor
+    );
+}
 
     // =========================
     // Load Profile Stats
@@ -151,7 +259,12 @@ const typings = (visibleTypings || [])
         return;
     }
 
-    renderProfileTypings(typings || []);
+profilePublishedTypings =
+    typings || [];
+
+updateProfileTypeFilter();
+
+renderFilteredProfileTypings();
 }
 
 
@@ -997,6 +1110,385 @@ profileFollowBtn.disabled = false;
 // Published Typings
 // =========================
 
+function getProfilePossibilityCount(
+    typing
+) {
+
+    const value =
+        typing.possibilities;
+
+    if (typeof value === "number") {
+        return value;
+    }
+
+    if (
+        typeof value === "string" &&
+        value.trim() !== ""
+    ) {
+        const parsed = Number(value);
+
+        if (!Number.isNaN(parsed)) {
+            return parsed;
+        }
+    }
+
+    const data =
+        typing.data || {};
+
+    if (
+        typeof data.possibilities ===
+        "number"
+    ) {
+        return data.possibilities;
+    }
+
+    if (
+        typeof data.possibilities ===
+        "string"
+    ) {
+        const parsed =
+            Number(
+                data.possibilities
+            );
+
+        if (!Number.isNaN(parsed)) {
+            return parsed;
+        }
+    }
+
+    return null;
+}
+
+function getProfileTypingType(typing) {
+
+    return (
+        typing.revealed_type ||
+        typing.data?.revealed_type ||
+        ""
+    ).trim();
+}
+
+
+function updateProfileTypeFilter() {
+
+    if (!profileTypingTypeFilter) {
+        return;
+    }
+
+    const currentValue =
+        profileTypingTypeFilter.value;
+
+    const types = [
+        ...new Set(
+            profilePublishedTypings
+                .map(getProfileTypingType)
+                .filter(Boolean)
+        )
+    ].sort(
+        (a, b) =>
+            a.localeCompare(b)
+    );
+
+    profileTypingTypeFilter.innerHTML =
+        `<option value="all">All Types</option>`;
+
+    types.forEach(type => {
+
+        const option =
+            document.createElement("option");
+
+        option.value = type;
+        option.textContent = type;
+
+        profileTypingTypeFilter.appendChild(
+            option
+        );
+    });
+
+    if (types.includes(currentValue)) {
+        profileTypingTypeFilter.value =
+            currentValue;
+    }
+}
+
+
+function getFilteredProfileTypings() {
+
+    const search =
+        (
+            profileTypingSearch?.value ||
+            ""
+        )
+            .trim()
+            .toLowerCase();
+
+    const selectedType =
+        profileTypingTypeFilter?.value ||
+        "all";
+
+    const possibilityFilter =
+        profileTypingPossibilitiesFilter?.value ||
+        "all";
+
+    const dateFilter =
+        profileTypingDateFilter?.value ||
+        "all";
+
+    let typings =
+        profilePublishedTypings.filter(
+            typing => {
+
+                const title =
+                    (
+                        typing.title ||
+                        ""
+                    ).toLowerCase();
+
+                if (
+                    search &&
+                    !title.includes(search)
+                ) {
+                    return false;
+                }
+
+
+                if (
+                    selectedType !== "all" &&
+                    getProfileTypingType(
+                        typing
+                    ) !== selectedType
+                ) {
+                    return false;
+                }
+
+
+                const count =
+                    getProfilePossibilityCount(
+                        typing
+                    );
+
+                if (
+                    possibilityFilter !==
+                    "all"
+                ) {
+
+                    if (count === null) {
+                        return false;
+                    }
+
+                    if (
+                        possibilityFilter ===
+                            "1" &&
+                        count !== 1
+                    ) {
+                        return false;
+                    }
+
+                    if (
+                        possibilityFilter ===
+                            "2-5" &&
+                        (
+                            count < 2 ||
+                            count > 5
+                        )
+                    ) {
+                        return false;
+                    }
+
+                    if (
+                        possibilityFilter ===
+                            "6-10" &&
+                        (
+                            count < 6 ||
+                            count > 10
+                        )
+                    ) {
+                        return false;
+                    }
+
+                    if (
+                        possibilityFilter ===
+                            "11-20" &&
+                        (
+                            count < 11 ||
+                            count > 20
+                        )
+                    ) {
+                        return false;
+                    }
+
+                    if (
+                        possibilityFilter ===
+                            "21+" &&
+                        count < 21
+                    ) {
+                        return false;
+                    }
+                }
+
+
+                if (
+                    dateFilter !== "all"
+                ) {
+
+                    if (!typing.created_at) {
+                        return false;
+                    }
+
+                    const created =
+                        new Date(
+                            typing.created_at
+                        );
+
+                    const now =
+                        new Date();
+
+                    if (
+                        dateFilter ===
+                        "today"
+                    ) {
+
+                        if (
+                            created.getFullYear() !==
+                                now.getFullYear() ||
+                            created.getMonth() !==
+                                now.getMonth() ||
+                            created.getDate() !==
+                                now.getDate()
+                        ) {
+                            return false;
+                        }
+                    }
+
+
+                    if (
+                        dateFilter ===
+                        "week"
+                    ) {
+
+                        const cutoff =
+                            new Date();
+
+                        cutoff.setDate(
+                            cutoff.getDate() -
+                            7
+                        );
+
+                        if (
+                            created < cutoff
+                        ) {
+                            return false;
+                        }
+                    }
+
+
+                    if (
+                        dateFilter ===
+                        "month"
+                    ) {
+
+                        const cutoff =
+                            new Date();
+
+                        cutoff.setMonth(
+                            cutoff.getMonth() -
+                            1
+                        );
+
+                        if (
+                            created < cutoff
+                        ) {
+                            return false;
+                        }
+                    }
+
+
+                    if (
+                        dateFilter ===
+                        "year"
+                    ) {
+
+                        const cutoff =
+                            new Date();
+
+                        cutoff.setFullYear(
+                            cutoff.getFullYear() -
+                            1
+                        );
+
+                        if (
+                            created < cutoff
+                        ) {
+                            return false;
+                        }
+                    }
+                }
+
+                return true;
+            }
+        );
+
+
+    const sort =
+        profileTypingSort?.value ||
+        "newest";
+
+    typings = [...typings].sort(
+        (a, b) => {
+
+            if (sort === "oldest") {
+                return (
+                    new Date(
+                        a.created_at || 0
+                    ) -
+                    new Date(
+                        b.created_at || 0
+                    )
+                );
+            }
+
+            if (sort === "title-asc") {
+                return (
+                    a.title ||
+                    "Untitled Typing"
+                ).localeCompare(
+                    b.title ||
+                    "Untitled Typing"
+                );
+            }
+
+            if (sort === "title-desc") {
+                return (
+                    b.title ||
+                    "Untitled Typing"
+                ).localeCompare(
+                    a.title ||
+                    "Untitled Typing"
+                );
+            }
+
+            return (
+                new Date(
+                    b.created_at || 0
+                ) -
+                new Date(
+                    a.created_at || 0
+                )
+            );
+        }
+    );
+
+    return typings;
+}
+
+
+function renderFilteredProfileTypings() {
+
+    renderProfileTypings(
+        getFilteredProfileTypings()
+    );
+}
+
 function renderProfileTypings(typings) {
 
     profileTypings.innerHTML = "";
@@ -1009,68 +1501,218 @@ function renderProfileTypings(typings) {
     }
 
 
-    typings.forEach((typing) => {
+typings.forEach((typing) => {
 
-        const card = document.createElement("div");
+    const card =
+        document.createElement("div");
 
-        card.className =
-            "profile-typing-card";
+    card.className =
+        "database-entry-card";
 
+    const title =
+        typing.title ||
+        "Untitled Typing";
 
-        const title =
-            typing.title || "Untitled Typing";
+    const createdDate =
+        typing.created_at
+            ? new Date(
+                typing.created_at
+            ).toLocaleDateString()
+            : "Unknown date";
 
-
-        const createdDate =
-            typing.created_at
-                ? new Date(
-                    typing.created_at
-                ).toLocaleDateString()
-                : "";
-
-
-        card.innerHTML = `
-            <h3>
-                ${escapeHtml(title)}
-            </h3>
-
-            ${
-                createdDate
-                    ? `
-                        <div class="profile-typing-date">
-                            ${escapeHtml(createdDate)}
-                        </div>
-                    `
-                    : ""
-            }
-
-            <button
-                class="profile-view-typing-btn"
-                type="button">
-                View Typing
-            </button>
-        `;
-
-
-        const viewButton =
-            card.querySelector(
-                ".profile-view-typing-btn"
-            );
-
-
-        viewButton.addEventListener(
-            "click",
-            () => {
-                window.location.href =
-                    `index.html?view=${typing.id}`;
-            }
+    const possibilityCount =
+        getProfilePossibilityCount(
+            typing
         );
 
+    card.innerHTML = `
+        <div class="typing-card-header">
 
-        profileTypings.appendChild(card);
-    });
+            <div class="typing-card-date">
+                ${escapeHtml(createdDate)}
+            </div>
+
+        </div>
+
+        <h2>
+            ${escapeHtml(title)}
+        </h2>
+
+<div class="typing-card-info">
+    ${
+        possibilityCount !== null
+            ? `
+                <span>
+                    ${possibilityCount}
+                    result${possibilityCount === 1 ? "" : "s"}
+                </span>
+            `
+            : ""
+    }
+</div>
+
+<button
+    class="reveal-type-btn"
+    type="button">
+    Reveal Type
+</button>
+
+<button
+    class="profile-view-typing-btn"
+    type="button">
+    View Typing
+</button>
+
+${
+    currentUser &&
+    currentUser.id === typing.user_id
+        ? `
+            <button
+                class="delete-typing-btn"
+                type="button">
+                Unpublish
+            </button>
+        `
+        : ""
+}
+    `;
+
+    const revealButton =
+    card.querySelector(
+        ".reveal-type-btn"
+    );
+
+const finalType =
+    getProfileTypingType(
+        typing
+    );
+
+revealButton.dataset.type =
+    finalType;
+
+if (
+    profileRevealAllActive &&
+    finalType
+) {
+    revealButton.textContent =
+        finalType;
+
+    revealButton.dataset.revealed =
+        "true";
+} else {
+    revealButton.textContent =
+        "Reveal Type";
+
+    revealButton.dataset.revealed =
+        "false";
 }
 
+revealButton.addEventListener(
+    "click",
+    () => {
+
+        if (!finalType) {
+            return;
+        }
+
+        const isRevealed =
+            revealButton.dataset.revealed ===
+            "true";
+
+        revealButton.textContent =
+            isRevealed
+                ? "Reveal Type"
+                : finalType;
+
+        revealButton.dataset.revealed =
+            isRevealed
+                ? "false"
+                : "true";
+    }
+);
+
+const viewButton =
+    card.querySelector(
+        ".profile-view-typing-btn"
+    );
+
+viewButton.addEventListener(
+    "click",
+    () => {
+        window.location.href =
+            `index.html?view=${typing.id}`;
+    }
+);
+
+const deleteButton =
+    card.querySelector(
+        ".delete-typing-btn"
+    );
+
+if (deleteButton) {
+
+    deleteButton.addEventListener(
+        "click",
+        async () => {
+
+            const confirmed =
+                window.confirm(
+                    "Unpublish this typing?"
+                );
+
+            if (!confirmed) {
+                return;
+            }
+
+            deleteButton.disabled = true;
+
+            const { error } =
+                await supabaseClient
+                    .from("public_typings")
+                    .delete()
+                    .eq("id", typing.id)
+                    .eq(
+                        "user_id",
+                        currentUser.id
+                    );
+
+            if (error) {
+
+                console.error(
+                    "Unpublish failed:",
+                    error
+                );
+
+                alert(
+                    "Unable to unpublish typing: " +
+                    error.message
+                );
+
+                deleteButton.disabled = false;
+                return;
+            }
+
+            profilePublishedTypings =
+                profilePublishedTypings.filter(
+                    item =>
+                        item.id !== typing.id
+                );
+
+            updateProfileTypeFilter();
+            renderFilteredProfileTypings();
+
+            await loadProfileStats();
+        }
+    );
+}
+
+profileTypings.appendChild(
+    card
+);
+
+});
+
+}
 
 // =========================
 // HTML Safety
@@ -1086,46 +1728,71 @@ function escapeHtml(value) {
         .replace(/'/g, "&#039;");
 }
 
-async function saveBio() {
+async function saveProfile() {
 
-    if (!currentUser || currentUser.id !== profileUserId) {
+    if (
+        !currentUser ||
+        currentUser.id !== profileUserId
+    ) {
         return;
     }
 
-    const bio = profileBioInput
-        ? profileBioInput.value.trim()
-        : "";
+    const username =
+        profileUsernameInput
+            ? profileUsernameInput.value.trim()
+            : "";
 
-    saveBioBtn.disabled = true;
+    const bio =
+        profileBioInput
+            ? profileBioInput.value.trim()
+            : "";
+
+    if (!username) {
+        alert("Username cannot be empty.");
+        return;
+    }
+
+    saveProfileBtn.disabled = true;
 
     const { error } = await supabaseClient
         .from("profiles")
         .update({
+            username: username,
             bio: bio
         })
         .eq("id", currentUser.id);
 
     if (error) {
 
-        console.error("Bio save failed:", error);
+        console.error(
+            "Profile save failed:",
+            error
+        );
 
         alert(
-            "Unable to save bio: " +
+            "Unable to save profile: " +
             error.message
         );
 
-        saveBioBtn.disabled = false;
+        saveProfileBtn.disabled = false;
         return;
     }
+
+    profileUsername.textContent =
+        username;
 
     if (profileBio) {
         profileBio.textContent =
             bio || "No bio yet.";
     }
 
-    saveBioBtn.disabled = false;
+    saveProfileBtn.disabled = false;
 
-    console.log("Bio saved successfully.");
+    closeProfileEditor();
+
+    console.log(
+        "Profile saved successfully."
+    );
 }
 
 // =========================
@@ -1154,10 +1821,14 @@ if (profileMuteBtn) {
     );
 }
 
-if (saveBioBtn) {
-    saveBioBtn.addEventListener(
+if (backToTypingBtn) {
+
+    backToTypingBtn.addEventListener(
         "click",
-        saveBio
+        () => {
+            window.location.href =
+                "index.html";
+        }
     );
 }
 
@@ -1187,3 +1858,113 @@ document.addEventListener(
     "DOMContentLoaded",
     loadProfile
 );
+
+if (saveProfileBtn) {
+    saveProfileBtn.addEventListener(
+        "click",
+        saveProfile
+    );
+}
+
+if (profileTypingSearch) {
+    profileTypingSearch.addEventListener(
+        "input",
+        renderFilteredProfileTypings
+    );
+}
+
+[
+    profileTypingSort,
+    profileTypingTypeFilter,
+    profileTypingPossibilitiesFilter,
+    profileTypingDateFilter
+].forEach(control => {
+
+    if (control) {
+        control.addEventListener(
+            "change",
+            renderFilteredProfileTypings
+        );
+    }
+});
+
+
+if (clearProfileTypingFilters) {
+
+    clearProfileTypingFilters.addEventListener(
+        "click",
+        () => {
+
+            if (profileTypingSearch) {
+                profileTypingSearch.value =
+                    "";
+            }
+
+            if (profileTypingSort) {
+                profileTypingSort.value =
+                    "newest";
+            }
+
+            if (profileTypingTypeFilter) {
+                profileTypingTypeFilter.value =
+                    "all";
+            }
+
+            if (
+                profileTypingPossibilitiesFilter
+            ) {
+                profileTypingPossibilitiesFilter.value =
+                    "all";
+            }
+
+            if (profileTypingDateFilter) {
+                profileTypingDateFilter.value =
+                    "all";
+            }
+
+            renderFilteredProfileTypings();
+        }
+    );
+}
+
+if (profileRevealAllTypes) {
+
+    profileRevealAllTypes.addEventListener(
+        "click",
+        () => {
+
+            profileRevealAllActive =
+                !profileRevealAllActive;
+
+            profileRevealAllTypes.textContent =
+                profileRevealAllActive
+                    ? "Hide All Types"
+                    : "Reveal All Types";
+
+            document
+                .querySelectorAll(
+                    "#profileTypings .reveal-type-btn"
+                )
+                .forEach(button => {
+
+                    const finalType =
+                        button.dataset.type ||
+                        "";
+
+                    if (!finalType) {
+                        return;
+                    }
+
+                    button.textContent =
+                        profileRevealAllActive
+                            ? finalType
+                            : "Reveal Type";
+
+                    button.dataset.revealed =
+                        profileRevealAllActive
+                            ? "true"
+                            : "false";
+                });
+        }
+    );
+}

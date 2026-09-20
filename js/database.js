@@ -6,6 +6,7 @@ const databaseSort = document.getElementById("databaseSort");
 const databaseTypeFilter = document.getElementById("databaseTypeFilter");
 const databasePossibilitiesFilter = document.getElementById("databasePossibilitiesFilter");
 const databaseDateFilter = document.getElementById("databaseDateFilter");
+const databaseBookmarkFilter = document.getElementById("databaseBookmarkFilter");
 const clearDatabaseFilters = document.getElementById("clearDatabaseFilters");
 
 const notificationsBtn =
@@ -26,6 +27,7 @@ const closeNotificationsBtn =
 let publicTypings = [];
 let currentUser = null;
 let userNotifications = [];
+let bookmarkedTypingIds = new Set();
 
 let revealAllTypes = false;
 let databaseRevealAll = null;
@@ -669,12 +671,20 @@ function getFilteredTypings() {
             return false;
         }
 
-        // Date
-        if (!matchesDateFilter(typing)) {
-            return false;
-        }
+// Date
+if (!matchesDateFilter(typing)) {
+    return false;
+}
 
-        return true;
+// Bookmarked
+if (
+    databaseBookmarkFilter?.dataset.active === "true" &&
+    !bookmarkedTypingIds.has(Number(typing.id))
+) {
+    return false;
+}
+
+return true;
     });
 
     return sortTypings(filtered);
@@ -798,13 +808,38 @@ const updatedDate =
         const typingType = getTypingType(typing);
 
         card.innerHTML = `
-            <div class="typing-card-header">
+<div class="typing-card-header">
 
+    <button
+        class="typing-card-user"
+        type="button">
+        ${escapeHtml(username)}
+    </button>
+
+    ${
+        currentUser
+            ? `
                 <button
-                    class="typing-card-user"
-                    type="button">
-                    ${escapeHtml(username)}
+    class="bookmark-typing-btn ${
+        bookmarkedTypingIds.has(Number(typing.id))
+            ? "bookmarks"
+            : ""
+    }"
+    type="button"
+                    title="${
+                        bookmarkedTypingIds.has(Number(typing.id))
+                            ? "Remove bookmark"
+                            : "Bookmark"
+                    }">
+                    ${
+                        bookmarkedTypingIds.has(Number(typing.id))
+                            ? "★"
+                            : "☆"
+                    }
                 </button>
+            `
+            : ""
+    }
 
                 <div class="typing-card-date">
                     ${escapeHtml(createdDate)}
@@ -846,11 +881,11 @@ const updatedDate =
     Reveal Type
 </button>
 
-            <button class="view-typing-btn" type="button">
-                View Typing
-            </button>
+<button class="view-typing-btn" type="button">
+    View Typing
+</button>
 
-            ${
+${
     currentUser && currentUser.id === typing.user_id
         ? `
             ${
@@ -929,14 +964,65 @@ revealBtn.onclick = () => {
     }
 };
 
-        // View typing
-        const viewBtn = card.querySelector(".view-typing-btn");
+// View typing
+const viewBtn = card.querySelector(".view-typing-btn");
 
-        viewBtn.onclick = () => {
-            window.location.href = `index.html?view=${typing.id}`;
-        };
+viewBtn.onclick = () => {
+    window.location.href = `index.html?view=${typing.id}`;
+};
 
-        const manageAccessBtn =
+// Bookmark typing
+const bookmarkBtn =
+    card.querySelector(".bookmark-typing-btn");
+
+if (bookmarkBtn) {
+    bookmarkBtn.onclick = async () => {
+        const typingId = Number(typing.id);
+
+        if (bookmarkedTypingIds.has(typingId)) {
+            const { error } = await supabaseClient
+                .from("typing_bookmarks")
+                .delete()
+                .eq("user_id", currentUser.id)
+                .eq("typing_id", typingId);
+
+            if (error) {
+                console.error(
+                    "Bookmark removal failed:",
+                    error
+                );
+                return;
+            }
+
+            bookmarkedTypingIds.delete(typingId);
+            bookmarkBtn.textContent = "☆";
+bookmarkBtn.title = "Bookmark";
+bookmarkBtn.classList.remove("bookmarks");
+        } else {
+            const { error } = await supabaseClient
+                .from("typing_bookmarks")
+                .insert({
+                    user_id: currentUser.id,
+                    typing_id: typingId
+                });
+
+            if (error) {
+                console.error(
+                    "Bookmark failed:",
+                    error
+                );
+                return;
+            }
+
+            bookmarkedTypingIds.add(typingId);
+bookmarkBtn.textContent = "★";
+bookmarkBtn.title = "Remove bookmark";
+bookmarkBtn.classList.add("bookmarks");
+}
+    };
+}
+
+const manageAccessBtn =
     card.querySelector(
         ".manage-typing-access-btn"
     );
@@ -1317,6 +1403,519 @@ async function openDatabaseAccessManager(
     );
 }
 
+let publicDefinitions = [];
+
+async function loadPublicDefinitions() {
+    const definitionEntries =
+        document.getElementById(
+            "definitionEntries"
+        );
+
+    if (!definitionEntries) {
+        return;
+    }
+
+    definitionEntries.textContent =
+        "Loading public definitions...";
+
+    const { data, error } =
+        await supabaseClient
+            .from("public_definitions")
+            .select("*")
+            .order(
+                "created_at",
+                { ascending: false }
+            );
+
+    if (error) {
+        console.error(
+            "Definition load failed:",
+            error
+        );
+
+        definitionEntries.textContent =
+            "Failed to load public definitions.";
+
+        return;
+    }
+
+    publicDefinitions = data || [];
+
+    definitionEntries.innerHTML = "";
+
+    if (publicDefinitions.length === 0) {
+        definitionEntries.textContent =
+            "No published definitions yet.";
+
+        return;
+    }
+
+    publicDefinitions.forEach(
+        definitionSet => {
+            const card =
+                document.createElement("div");
+
+            card.className =
+                "database-entry-card";
+
+            const title =
+                definitionSet.title ||
+                "Untitled Definitions";
+
+            const username =
+                definitionSet.username ||
+                "Unknown User";
+
+            const coins =
+                Array.isArray(
+                    definitionSet.coins
+                )
+                    ? definitionSet.coins
+                    : [];
+
+            const createdDate =
+                definitionSet.created_at
+                    ? new Date(
+                        definitionSet.created_at
+                    ).toLocaleDateString()
+                    : "Unknown date";
+
+            card.innerHTML = `
+                <div class="typing-card-header">
+                    <div class="typing-card-user">
+                        ${escapeHtml(username)}
+                    </div>
+
+                    <div class="typing-card-date">
+                        ${escapeHtml(createdDate)}
+                    </div>
+                </div>
+
+                <h2>
+                    ${escapeHtml(title)}
+                </h2>
+
+                <div class="typing-card-info">
+                    <span>
+                        ${coins.length} coin${
+                            coins.length === 1
+                                ? ""
+                                : "s"
+                        }
+                    </span>
+                </div>
+
+                <button
+                    class="view-definitions-btn"
+                    type="button">
+                    View Definitions
+                </button>
+
+                ${
+                    currentUser &&
+                    currentUser.id ===
+                        definitionSet.user_id
+                        ? `
+                            <button
+                                class="delete-definition-btn"
+                                type="button">
+                                Delete
+                            </button>
+                        `
+                        : ""
+                }
+            `;
+
+definitionEntries.appendChild(
+    card
+);
+
+/*
+    Delete your own published
+    definition set.
+*/
+const deleteDefinitionBtn =
+    card.querySelector(
+        ".delete-definition-btn"
+    );
+
+if (deleteDefinitionBtn) {
+    deleteDefinitionBtn.addEventListener(
+        "click",
+        async () => {
+            const confirmed =
+                window.confirm(
+                    "Delete this published definition set?"
+                );
+
+            if (!confirmed) {
+                return;
+            }
+
+            deleteDefinitionBtn.disabled = true;
+
+            const { error } =
+                await supabaseClient
+                    .from(
+                        "public_definitions"
+                    )
+                    .delete()
+                    .eq(
+                        "id",
+                        definitionSet.id
+                    )
+                    .eq(
+                        "user_id",
+                        currentUser.id
+                    );
+
+            if (error) {
+                console.error(
+                    "Definition delete failed:",
+                    error
+                );
+
+                alert(
+                    "Delete failed: " +
+                    error.message
+                );
+
+                deleteDefinitionBtn.disabled =
+                    false;
+
+                return;
+            }
+
+            publicDefinitions =
+                publicDefinitions.filter(
+                    item =>
+                        item.id !==
+                        definitionSet.id
+                );
+
+            card.remove();
+        }
+    );
+}
+
+const viewDefinitionsBtn =
+    card.querySelector(
+        ".view-definitions-btn"
+    );
+    
+viewDefinitionsBtn.addEventListener(
+    "click",
+    () => {
+        const overlay =
+            document.createElement("div");
+
+        overlay.className =
+            "typing-access-overlay";
+
+        const modal =
+            document.createElement("div");
+
+        modal.className =
+            "typing-access-modal definition-preview-modal";
+
+        const header =
+            document.createElement("div");
+
+        header.className =
+            "typing-access-header";
+
+        header.innerHTML = `
+            <div>
+                <h2>
+                    ${escapeHtml(title)}
+                </h2>
+
+                <div>
+                    by ${escapeHtml(username)}
+                </div>
+            </div>
+
+            <button
+                class="close-definitions-btn"
+                type="button">
+                ✕
+            </button>
+        `;
+
+        const coinContainer =
+            document.createElement("div");
+
+        coinContainer.className =
+            "coin-container definition-preview-coins";
+
+        coins.forEach(coin => {
+            const coinRow =
+                document.createElement("div");
+
+            coinRow.className =
+                "coin-row";
+
+            const options =
+                Array.isArray(coin.options)
+                    ? coin.options
+                    : [];
+
+            /*
+             * Normal two-sided coins.
+             *
+             * Match the actual OP Studio coin
+             * structure, but keep everything
+             * read-only in the Database preview.
+             */
+            if (options.length === 2) {
+                const optionPair =
+                    document.createElement("div");
+
+                optionPair.className =
+                    "coin-option-pair";
+
+                const optionRow =
+                    document.createElement("div");
+
+                optionRow.className =
+                    "coin-option-row";
+
+                const leftSideValues = [
+                    "O",
+                    "Di",
+                    "Oi",
+                    "N",
+                    "F",
+                    "fDe",
+                    "fS",
+                    "#1",
+                    "#2",
+                    "C",
+                    "S"
+                ];
+
+                options.forEach(
+                    (option, index) => {
+                        const optionCard =
+                            document.createElement(
+                                "div"
+                            );
+
+                        optionCard.className =
+                            "option-card";
+
+                        const optionButton =
+                            document.createElement(
+                                "button"
+                            );
+
+                        optionButton.type =
+                            "button";
+
+                        optionButton.className =
+                            "option-button";
+
+                        optionButton.textContent =
+                            option.label ||
+                            option.value ||
+                            "";
+
+                        /*
+                            This is a preview, so
+                            the coin cannot be selected.
+                        */
+                        optionButton.disabled = true;
+
+                        const definition =
+                            document.createElement(
+                                "input"
+                            );
+
+                        definition.value =
+                            option.definition || "";
+
+                        definition.placeholder =
+                            `Define ${
+                                option.label ||
+                                option.value ||
+                                ""
+                            }`;
+
+                        definition.readOnly = true;
+
+                        definition.style.direction =
+                            "ltr";
+
+                        if (index === 0) {
+                            definition.className =
+                                "option-definition left-definition";
+
+                            if (
+                                leftSideValues.includes(
+                                    option.value
+                                )
+                            ) {
+                                definition.style.textAlign =
+                                    "right";
+                            }
+
+                            optionCard.appendChild(
+                                definition
+                            );
+
+                            optionCard.appendChild(
+                                optionButton
+                            );
+                        } else {
+                            definition.className =
+                                "option-definition right-definition";
+
+                            optionCard.appendChild(
+                                optionButton
+                            );
+
+                            optionCard.appendChild(
+                                definition
+                            );
+                        }
+
+                        optionRow.appendChild(
+                            optionCard
+                        );
+                    }
+                );
+
+                optionPair.appendChild(
+                    optionRow
+                );
+
+                coinRow.appendChild(
+                    optionPair
+                );
+            }
+
+            /*
+             * Four-sided special coin
+             */
+            else if (options.length === 4) {
+                const optionGrid =
+                    document.createElement("div");
+
+                optionGrid.className =
+                    "coin-option-grid";
+
+                options.forEach(option => {
+                    const optionCard =
+                        document.createElement(
+                            "div"
+                        );
+
+                    optionCard.className =
+                        "option-card";
+
+                    const optionButton =
+                        document.createElement(
+                            "div"
+                        );
+
+                    optionButton.className =
+                        "option-button";
+
+                    optionButton.textContent =
+                        option.label ||
+                        option.value ||
+                        "";
+
+                    optionCard.appendChild(
+                        optionButton
+                    );
+
+                    optionGrid.appendChild(
+                        optionCard
+                    );
+                });
+
+                coinRow.appendChild(
+                    optionGrid
+                );
+
+            }
+
+            coinContainer.appendChild(
+                coinRow
+            );
+        });
+
+        const actions =
+            document.createElement("div");
+
+        actions.className =
+            "typing-access-actions";
+
+        actions.innerHTML = `
+            <button
+                class="copy-definitions-btn"
+                type="button">
+                Copy Definitions
+            </button>
+        `;
+
+        modal.appendChild(header);
+        modal.appendChild(coinContainer);
+        modal.appendChild(actions);
+
+        overlay.appendChild(modal);
+
+        document.body.appendChild(
+            overlay
+        );
+
+        overlay
+            .querySelector(
+                ".close-definitions-btn"
+            )
+            .addEventListener(
+                "click",
+                () => {
+                    overlay.remove();
+                }
+            );
+
+        overlay.addEventListener(
+            "click",
+            event => {
+                if (
+                    event.target === overlay
+                ) {
+                    overlay.remove();
+                }
+            }
+        );
+
+        overlay
+            .querySelector(
+                ".copy-definitions-btn"
+            )
+            .addEventListener(
+                "click",
+                () => {
+                    sessionStorage.setItem(
+                        "opsPendingCopiedDefinitions",
+                        JSON.stringify(
+                            coins
+                        )
+                    );
+
+                    window.location.href =
+                        "index.html?definitionsCopied=1";
+                }
+            );
+    }
+);
+        }
+    );
+}
+
 async function loadPublicTypings() {
     databaseEntries.textContent = "Loading public entries...";
 
@@ -1324,9 +1923,34 @@ async function loadPublicTypings() {
         data: { user }
     } = await supabaseClient.auth.getUser();
 
-    currentUser = user || null;
+currentUser = user || null;
 
-    const { data, error } = await supabaseClient
+bookmarkedTypingIds = new Set();
+
+if (currentUser) {
+    const {
+        data: bookmarkRows,
+        error: bookmarkError
+    } = await supabaseClient
+        .from("typing_bookmarks")
+        .select("typing_id")
+        .eq("user_id", currentUser.id);
+
+    if (bookmarkError) {
+        console.error(
+            "Bookmark load failed:",
+            bookmarkError
+        );
+    } else {
+        bookmarkedTypingIds = new Set(
+            (bookmarkRows || []).map(
+                row => Number(row.typing_id)
+            )
+        );
+    }
+}
+
+const { data, error } = await supabaseClient
     .rpc("get_visible_typings");
 
     if (error) {
@@ -1403,14 +2027,36 @@ if (closeNotificationsBtn) {
         );
     }
 
-    if (databaseDateFilter) {
-        databaseDateFilter.addEventListener(
-            "change",
-            renderPublicTypings
-        );
-    }
+if (databaseDateFilter) {
+    databaseDateFilter.addEventListener(
+        "change",
+        renderPublicTypings
+    );
+}
 
-    if (clearDatabaseFilters) {
+if (databaseBookmarkFilter) {
+    databaseBookmarkFilter.addEventListener(
+        "click",
+        () => {
+            const isActive =
+                databaseBookmarkFilter.dataset.active === "true";
+
+            databaseBookmarkFilter.dataset.active =
+                isActive ? "false" : "true";
+
+databaseBookmarkFilter.textContent = "Bookmarks";
+
+            databaseBookmarkFilter.classList.toggle(
+                "active",
+                !isActive
+            );
+
+            renderPublicTypings();
+        }
+    );
+}
+
+if (clearDatabaseFilters) {
         clearDatabaseFilters.addEventListener(
             "click",
             () => {
@@ -1430,12 +2076,151 @@ if (closeNotificationsBtn) {
                     databasePossibilitiesFilter.value = "all";
                 }
 
-                if (databaseDateFilter) {
-                    databaseDateFilter.value = "all";
-                }
+if (databaseDateFilter) {
+    databaseDateFilter.value = "all";
+}
 
-                renderPublicTypings();
+if (databaseBookmarkFilter) {
+    databaseBookmarkFilter.dataset.active = "false";
+    databaseBookmarkFilter.textContent = "Bookmarks";
+    databaseBookmarkFilter.classList.remove("active");
+}
+
+renderPublicTypings();
             }
         );
     }
 });
+
+const databaseTypingsTab =
+    document.getElementById(
+        "databaseTypingsTab"
+    );
+
+const databaseDefinitionsTab =
+    document.getElementById(
+        "databaseDefinitionsTab"
+    );
+
+const typingsDatabaseSection =
+    document.getElementById(
+        "typingsDatabaseSection"
+    );
+
+const definitionsDatabaseSection =
+    document.getElementById(
+        "definitionsDatabaseSection"
+    );
+
+function showDatabaseSection(section) {
+    const showingDefinitions =
+        section === "definitions";
+
+    typingsDatabaseSection.style.display =
+        showingDefinitions
+            ? "none"
+            : "";
+
+    definitionsDatabaseSection.style.display =
+        showingDefinitions
+            ? ""
+            : "none";
+
+    databaseTypingsTab.classList.toggle(
+        "active",
+        !showingDefinitions
+    );
+
+    databaseDefinitionsTab.classList.toggle(
+        "active",
+        showingDefinitions
+    );
+}
+
+databaseTypingsTab.addEventListener(
+    "click",
+    () => {
+        showDatabaseSection("typings");
+    }
+);
+
+databaseDefinitionsTab.addEventListener(
+    "click",
+    async () => {
+        showDatabaseSection("definitions");
+        await loadPublicDefinitions();
+    }
+);
+
+const saveDefinitionBtn =
+    document.getElementById("saveDefinitionBtn");
+
+if (saveDefinitionBtn) {
+    saveDefinitionBtn.addEventListener(
+        "click",
+        async () => {
+            const title =
+                document
+                    .getElementById("definitionTitle")
+                    ?.value
+                    .trim() || "";
+
+            const definition =
+                document
+                    .getElementById("definitionText")
+                    ?.value
+                    .trim() || "";
+
+            if (!currentUser) {
+                alert(
+                    "Log in before saving a definition."
+                );
+                return;
+            }
+
+            if (!title || !definition) {
+                alert(
+                    "Add both a title and definition before saving."
+                );
+                return;
+            }
+
+            saveDefinitionBtn.disabled = true;
+
+            const { error } =
+                await supabaseClient
+                    .from("user_definitions")
+                    .insert([{
+                        user_id: currentUser.id,
+                        title,
+                        definition
+                    }]);
+
+            saveDefinitionBtn.disabled = false;
+
+            if (error) {
+                console.error(
+                    "Definition save failed:",
+                    error
+                );
+
+                alert(
+                    "Definition save failed: " +
+                    error.message
+                );
+
+                return;
+            }
+
+            document.getElementById(
+                "definitionTitle"
+            ).value = "";
+
+            document.getElementById(
+                "definitionText"
+            ).value = "";
+
+            alert("Definition saved.");
+        }
+    );
+}

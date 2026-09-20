@@ -64,6 +64,8 @@ let templates = [];
 let activeTemplateId = null;
 let typeLibrary = [];
 
+let preciseCoinLocks = {};
+
 const GUEST_WORKSPACE_KEY =
     "opsTypingTemplatesGuest";
 
@@ -72,8 +74,19 @@ let activeWorkspaceKey =
 
 let activeWorkspaceUserId = null;
 
+// Account cloud saves stay locked until
+// that account's workspace has been
+// deliberately loaded or created.
+let accountWorkspaceReady = false;
+
 function setWorkspaceForUser(user) {
+    // Switching users/workspaces immediately
+    // locks cloud writes until the new
+    // workspace has been safely resolved.
+    accountWorkspaceReady = false;
+
     if (user?.id) {
+
         activeWorkspaceUserId =
             user.id;
 
@@ -101,7 +114,9 @@ function resetWorkspaceMemory() {
 }
 
 let editingLocked = false;
-let darkMode = false;
+
+let darkMode =
+    localStorage.getItem("opsDarkMode") === "true";
 
 let coinSelectionMode =
     localStorage.getItem("opsCoinSelectionMode") ||
@@ -117,6 +132,8 @@ let cloudSaveTimer = null;
 let cloudSavePending = false;
 let cloudSaveRunning = false;
 let cloudSaveNeedsAnotherPass = false;
+let cloudSaveLastSucceeded = false;
+let cloudSavePromise = null;
 let youtubeAccessToken =
     sessionStorage.getItem(
         "opsYouTubeAccessToken"
@@ -557,6 +574,19 @@ async function saveTemplatesToCloud() {
         return;
     }
 
+    // Never allow an authenticated account workspace
+    // to write to Supabase until that workspace has
+    // been deliberately loaded or safely initialized.
+    if (
+        activeWorkspaceUserId &&
+        !accountWorkspaceReady
+    ) {
+        console.warn(
+            "Cloud save blocked: account workspace is not ready."
+        );
+        return;
+    }
+
     // If a cloud write is already happening,
     // don't queue an old snapshot behind it.
     // Just remember that we need one newest-state save afterward.
@@ -565,16 +595,38 @@ async function saveTemplatesToCloud() {
         return;
     }
 
-    cloudSaveRunning = true;
+cloudSaveRunning = true;
 
-    try {
-        do {
-            cloudSaveNeedsAnotherPass = false;
+// This save attempt must prove that it
+// successfully reached Supabase.
+cloudSaveLastSucceeded = false;
 
-            const localSaved =
+// Create a promise that stays pending for
+// the entire lifetime of this cloud save.
+let resolveCloudSavePromise;
+
+cloudSavePromise =
+    new Promise(resolve => {
+        resolveCloudSavePromise = resolve;
+    });
+
+try {
+    // Capture the exact account/workspace this save
+    // belongs to before any asynchronous work begins.
+    const saveWorkspaceUserId =
+        activeWorkspaceUserId;
+
+    const saveWorkspaceKey =
+        activeWorkspaceKey;
+
+    do {
+        cloudSaveNeedsAnotherPass = false;
+
+
+const localSaved =
     JSON.parse(
         localStorage.getItem(
-            activeWorkspaceKey
+            saveWorkspaceKey
         ) || "{}"
     );
 
@@ -603,9 +655,15 @@ const {
 if (
     userError ||
     !user ||
-    !activeWorkspaceUserId ||
-    activeWorkspaceUserId !== user.id
+    !saveWorkspaceUserId ||
+    saveWorkspaceUserId !== user.id ||
+activeWorkspaceUserId !== saveWorkspaceUserId ||
+activeWorkspaceKey !== saveWorkspaceKey ||
+!accountWorkspaceReady
 ) {
+    console.warn(
+        "Cloud save cancelled: workspace changed while save was running."
+    );
     return;
 }
 
@@ -633,10 +691,14 @@ if (
                 return;
             }
 
-            console.log(
-                "Cloud save successful!",
-                new Date().toISOString()
-            );
+console.log(
+    "Cloud save successful!",
+    new Date().toISOString()
+);
+
+// Record that this save pass reached
+// Supabase successfully.
+cloudSaveLastSucceeded = true;
 
             // If another edit happened while we were uploading,
             // loop once more and upload the newest state.
@@ -647,9 +709,15 @@ if (
             "Cloud save failed:",
             error
         );
-    } finally {
-        cloudSaveRunning = false;
+} finally {
+    cloudSaveRunning = false;
+
+    if (resolveCloudSavePromise) {
+        resolveCloudSavePromise(
+            cloudSaveLastSucceeded
+        );
     }
+}
 }
 
 function scheduleCloudSave() {
@@ -691,7 +759,22 @@ async function flushCloudSave() {
 
     cloudSavePending = false;
 
+    // If a save is already running, request one
+    // final newest-state pass and wait for the
+    // entire running save cycle to finish.
+    if (cloudSaveRunning) {
+        cloudSaveNeedsAnotherPass = true;
+
+        if (cloudSavePromise) {
+            await cloudSavePromise;
+        }
+
+        return cloudSaveLastSucceeded;
+    }
+
     await saveTemplatesToCloud();
+
+    return cloudSaveLastSucceeded;
 }
 
 function loadTemplates() {
@@ -840,10 +923,8 @@ if (
     localSavedAt > cloudSavedAt
 ) {
     console.log(
-        "Local data is newer than cloud. Keeping local data."
+        "Local account cache is newer, but cloud account data takes priority on login."
     );
-
-    return "local-newer";
 }
 
     if (Array.isArray(cloudData.folders)) {
@@ -889,8 +970,13 @@ localStorage.setItem(
     })
 );
 
-    console.log("Cloud load successful!");
-    return true;
+// This account's real workspace has now
+// been successfully resolved from Supabase.
+// Cloud writes are safe from this point on.
+accountWorkspaceReady = true;
+
+console.log("Cloud load successful!");
+return true;
 }
 
 function moveTemplateToTrash(templateId) {
@@ -1930,16 +2016,16 @@ item.onclick = () => {
         }
     }
 
-    activeTemplateId =
-        template.id;
+activeTemplateId =
+    template.id;
 
-    showProjectsMenu =
-        false;
+showProjectsMenu =
+    false;
 
-    saveTemplates();
-    render();
+saveAll();
+render();
 
-    loadYouTubeForActiveTemplate();
+loadYouTubeForActiveTemplate();
 };
 
                 const labelContent =
@@ -2633,44 +2719,72 @@ if (notificationsMenu) {
             let hasDragMoved = false;
             const pairCards = [];
 
-            coin.options.forEach((option, index) => {
-                const card = document.createElement("div");
-                const sliderState = activeTemplate.sliderStates?.[coin.id];
-                const isLeftCard = index === 0;
-                const isRightCard = index === 1;
-                const isHalfSelected = typeof sliderState === "number" && ((isLeftCard && sliderState === 1) || (isRightCard && sliderState === 3));
-                const isFullSelected = typeof sliderState === "number" && ((isLeftCard && sliderState === 0) || (isRightCard && sliderState >= 4));
-                const halfDirectionClass = isHalfSelected && isRightCard && sliderState === 3 ? " reverse" : "";
-const isSelected =
-    selectedValue === option.value &&
-    !isHalfSelected;                card.className = "option-card" + (isSelected ? " selected" : "") + (isHalfSelected ? " slider-half-selected" : "") + (isFullSelected ? " slider-full-selected" : "") + halfDirectionClass;
-                pairCards.push(card);
+coin.options.forEach((option, index) => {
+    const card = document.createElement("div");
 
-                const cycleSimpleSelection = () => {
+    const sliderState =
+        activeTemplate.sliderStates?.[coin.id];
+
+    const isLeftCard = index === 0;
+    const isRightCard = index === 1;
+
+    const isHalfSelected =
+        typeof sliderState === "number" &&
+        (
+            (isLeftCard && sliderState === 1) ||
+            (isRightCard && sliderState === 3)
+        );
+
+    const isFullSelected =
+        typeof sliderState === "number" &&
+        (
+            (isLeftCard && sliderState === 0) ||
+            (isRightCard && sliderState >= 4)
+        );
+
+const halfDirectionClass =
+    isRightCard &&
+    (isHalfSelected || isFullSelected)
+        ? " reverse"
+        : "";
+
+    const isSelected =
+        selectedValue === option.value &&
+        !isHalfSelected;
+
+    card.className =
+        "option-card" +
+        (isSelected ? " selected" : "") +
+        (isHalfSelected
+            ? " slider-half-selected"
+            : "") +
+        (isFullSelected
+            ? " slider-full-selected"
+            : "") +
+        halfDirectionClass;
+
+    pairCards.push(card);
+
+const cycleSimpleSelection = () => {
     const currentState =
         typeof activeTemplate.sliderStates?.[coin.id] === "number"
             ? activeTemplate.sliderStates[coin.id]
             : 2;
 
-    let nextState;
+    const uncertainState =
+        index === 0 ? 1 : 3;
 
-    if (index === 0) {
-        if (currentState === 1) {
-            nextState = 0;
-        } else if (currentState === 0) {
-            nextState = 2;
-        } else {
-            nextState = 1;
-        }
-    } else {
-        if (currentState === 3) {
-            nextState = 4;
-        } else if (currentState === 4) {
-            nextState = 2;
-        } else {
-            nextState = 3;
-        }
-    }
+    const isThisSideSelected =
+        index === 0
+            ? currentState === 0 ||
+              currentState === 1
+            : currentState === 3 ||
+              currentState === 4;
+
+    const nextState =
+        isThisSideSelected
+            ? 2
+            : uncertainState;
 
     const nextValue =
         getSelectionValueFromSlider(
@@ -2728,7 +2842,10 @@ button.onclick = (event) => {
     render();
 };
 
-                const input = document.createElement("input");
+const input = document.createElement("textarea");
+
+input.rows = 1;
+input.wrap = "soft";
 
                 const leftSideValues = [
     "O",
@@ -2818,41 +2935,26 @@ input.addEventListener(
 
                 input.placeholder = `Define ${option.label}`;
                 input.value = option.definition || "";
-input.disabled = editingLocked || readOnlyMode || viewMode;input.addEventListener("input", () => {
-                    option.definition = input.value;
-saveAll();
-                });
+const resizeDefinition = () => {
+    input.style.height = "14px";
 
-card.onclick = () => {
-    if (viewMode) {
-        return;
+    if (input.scrollHeight > 14) {
+        input.style.height = "28px";
     }
+};
 
-    if (coinSelectionMode === "simple") {
-        cycleSimpleSelection();
-        return;
-    }
+requestAnimationFrame(() => {
+    resizeDefinition();
+});
 
-    if (suppressClick) {
-        suppressClick = false;
-        return;
-    }
+input.addEventListener("input", () => {
+    option.definition = input.value;
 
-    const nextValue =
-        activeTemplate.selections[coin.id] ===
-        option.value
-            ? undefined
-            : option.value;
-
-    setTemplateSelection(
-        activeTemplate,
-        coin,
-        nextValue
-    );
+    resizeDefinition();
 
     saveAll();
-    render();
-};
+});
+
 
                 if (index === 0) {
                     card.appendChild(input);
@@ -2865,15 +2967,154 @@ card.onclick = () => {
                 pairRow.appendChild(card);
             });
 
-            const pairSelector = document.createElement("div");
-            pairSelector.className = "coin-pair-selector";
+            const certaintyBtn =
+    document.createElement("button");
+
+certaintyBtn.type = "button";
+certaintyBtn.className = "coin-certainty-btn";
+
+const currentCertaintyState =
+    typeof activeTemplate.sliderStates?.[coin.id] === "number"
+        ? activeTemplate.sliderStates[coin.id]
+        : 2;
+
+const hasSelection =
+    currentCertaintyState !== 2;
+
+const isCertain =
+    currentCertaintyState === 0 ||
+    currentCertaintyState === 4;
+
+const isPreciseLocked =
+    preciseCoinLocks[coin.id] === true;
+
+if (coinSelectionMode === "precise") {
+    certaintyBtn.textContent =
+        isPreciseLocked ? "🔒" : "🔓";
+
+    certaintyBtn.title =
+        isPreciseLocked
+            ? "Unlock position"
+            : "Lock position";
+} else {
+    certaintyBtn.textContent =
+        isCertain ? "✓" : "?";
+
+    certaintyBtn.title =
+        isCertain
+            ? "Certain"
+            : "Uncertain";
+}
+
+certaintyBtn.style.display =
+    hasSelection ? "" : "none";
+
+    certaintyBtn.addEventListener(
+    "pointerdown",
+    (event) => {
+        event.stopPropagation();
+    }
+);
+
+certaintyBtn.onclick = (event) => {
+    event.stopPropagation();
+
+    if (
+        readOnlyMode ||
+        viewMode
+    ) {
+        return;
+    }
+
+if (coinSelectionMode === "precise") {
+    preciseCoinLocks[coin.id] =
+        !preciseCoinLocks[coin.id];
+
+    const isNowLocked =
+        preciseCoinLocks[coin.id];
+
+    certaintyBtn.textContent =
+        isNowLocked ? "🔒" : "🔓";
+
+    certaintyBtn.title =
+        isNowLocked
+            ? "Unlock position"
+            : "Lock position";
+
+    return;
+}
+
+    const state =
+        typeof activeTemplate.sliderStates?.[coin.id] === "number"
+            ? activeTemplate.sliderStates[coin.id]
+            : 2;
+
+    let nextState = state;
+
+    if (state === 1) {
+        nextState = 0;
+    } else if (state === 0) {
+        nextState = 1;
+    } else if (state === 3) {
+        nextState = 4;
+    } else if (state === 4) {
+        nextState = 3;
+    } else {
+        return;
+    }
+
+    activeTemplate.sliderStates[coin.id] =
+        nextState;
+
+    const nextValue =
+        getSelectionValueFromSlider(
+            coin,
+            nextState
+        );
+
+    setTemplateSelection(
+        activeTemplate,
+        coin,
+        nextValue
+    );
+
+    activeTemplate.sliderStates[coin.id] =
+        nextState;
+
+    saveAll();
+    render();
+};
+
+pairRow.appendChild(certaintyBtn);
+
+/*
+    In Precise mode, restore the exact
+    saved continuous position after render.
+*/
+if (
+    coinSelectionMode === "precise" &&
+    typeof activeTemplate.sliderStates?.[coin.id] === "number"
+) {
+    const savedPreciseState =
+        activeTemplate.sliderStates[coin.id];
+
+    requestAnimationFrame(() => {
+        applyPairVisualState(
+            savedPreciseState
+        );
+    });
+}
+
+const pairSelector =
+    document.createElement("div");
+                pairSelector.className = "coin-pair-selector";
 
             const slider = document.createElement("input");
             slider.type = "range";
             slider.className = "coin-pair-slider";
             slider.min = "0";
             slider.max = "4";
-            slider.step = "1";
+            slider.step = "any";
             let initialSliderValue = "2";
             const sliderState = activeTemplate.sliderStates?.[coin.id];
             if (typeof sliderState === "number") {
@@ -2910,35 +3151,79 @@ slider.addEventListener("input", () => {
                 render();
             });
 
-            const applyPairVisualState = (stateValue) => {
-                const state = Math.max(0, Math.min(4, Number(stateValue) || 2));
-                pairCards.forEach((card, index) => {
-                    const isLeftCard = index === 0;
-                    const isRightCard = index === 1;
-                    const isHalfSelected = (isLeftCard && state === 1) || (isRightCard && state === 3);
-                    const isFullSelected = (isLeftCard && state === 0) || (isRightCard && state === 4);
+const applyPairVisualState = (stateValue) => {
+    const state = Math.max(
+        0,
+        Math.min(4, Number(stateValue))
+    );
 
-                    card.className = "option-card";
-                    if (isFullSelected) {
-                        card.classList.add("selected", "slider-full-selected");
-                    } else if (isHalfSelected) {
-                        card.classList.add("slider-half-selected");
-                        if (isRightCard && state === 3) {
-                            card.classList.add("reverse");
-                        }
-                    }
-                });
-            };
+    pairCards.forEach((card, index) => {
+        card.className = "option-card";
 
-            const getNearestMarker = (clientX) => {
-                const rect = pairRow.getBoundingClientRect();
-                if (!rect.width) {
-                    return Number(slider.value) || 2;
-                }
-                const ratio = (clientX - rect.left) / rect.width;
-                const marker = Math.round(ratio * 4);
-                return Math.max(0, Math.min(4, marker));
-            };
+        card.style.removeProperty(
+            "--precise-fill"
+        );
+
+        if (state === 2) {
+            return;
+        }
+
+        const isLeftCard =
+            index === 0;
+
+        const isRightCard =
+            index === 1;
+
+        if (state < 2 && isLeftCard) {
+            const fillAmount =
+                ((2 - state) / 2) * 100;
+
+            card.classList.add(
+                "precise-selected"
+            );
+
+            card.style.setProperty(
+                "--precise-fill",
+                `${fillAmount}%`
+            );
+        }
+
+        if (state > 2 && isRightCard) {
+            const fillAmount =
+                ((state - 2) / 2) * 100;
+
+            card.classList.add(
+                "precise-selected",
+                "reverse"
+            );
+
+            card.style.setProperty(
+                "--precise-fill",
+                `${fillAmount}%`
+            );
+        }
+    });
+};
+
+const getNearestMarker = (clientX) => {
+    const rect = pairRow.getBoundingClientRect();
+
+    if (!rect.width) {
+        return Number(slider.value) || 2;
+    }
+
+    const ratio =
+        (clientX - rect.left) /
+        rect.width;
+
+    const position =
+        ratio * 4;
+
+    return Math.max(
+        0,
+        Math.min(4, position)
+    );
+};
 
 const finalizeDragSelection = (marker) => {
     if (viewMode) {
@@ -2961,6 +3246,10 @@ const finalizeDragSelection = (marker) => {
 
 pairRow.addEventListener("pointerdown", (event) => {
     if (coinSelectionMode !== "precise") {
+        return;
+    }
+
+    if (preciseCoinLocks[coin.id]) {
         return;
     }
 
@@ -3115,8 +3404,8 @@ const cycleSelection = () => {
 const input =
     document.createElement("textarea");
 
-                input.className =
-                    "option-definition";
+input.className =
+    "option-definition special-option-definition";
 
                     input.rows = 2;
 
@@ -3344,8 +3633,19 @@ if (coinSelectionModeSelect) {
     );
 }
 
-const viewModeLabel = document.getElementById("viewModeLabel");const backToDatabaseBtn = document.getElementById("backToDatabaseBtn");
-const duplicateTypingBtn = document.getElementById("duplicateTypingBtn");
+const viewModeLabel =
+    document.getElementById("viewModeLabel");
+
+const backToDatabaseBtn =
+    document.getElementById("backToDatabaseBtn");
+
+const backToPublisherProfileBtn =
+    document.getElementById(
+        "backToPublisherProfileBtn"
+    );
+
+const duplicateTypingBtn =
+    document.getElementById("duplicateTypingBtn");
 
 const databaseBtn = document.getElementById("databaseBtn");
 const accountBtn = document.getElementById("accountBtn");
@@ -3394,90 +3694,15 @@ const copiedTemplate = {
     folder: "Personal"
 };
 
-        templates.push(copiedTemplate);
-
-        activeTemplateId =
-            copiedTemplate.id;
-
-        saveTemplates();
-
-        const {
-            data: { user },
-            error: userError
-        } = await supabaseClient.auth.getUser();
-
-        if (userError || !user) {
-            console.error(
-                "Copy cloud save user lookup failed:",
-                userError
-            );
-
-            showError(
-                "Copy Failed",
-                "Unable to save the copied typing to your account."
-            );
-
-            return;
-        }
-
-        const cloudSnapshot =
-            structuredClone({
-                templates,
-                folders,
-                trash,
-                editingLocked,
-                darkMode,
-                activeTemplateId,
-                showTrash
-            });
-
-        const { error: cloudError } =
-            await supabaseClient
-                .from("user_data")
-                .upsert(
-                    {
-                        user_id:
-                            user.id,
-
-                        data:
-                            cloudSnapshot,
-
-                        updated_at:
-                            new Date()
-                                .toISOString()
-                    },
-                    {
-                        onConflict:
-                            "user_id"
-                    }
-                );
-
-        if (cloudError) {
-            console.error(
-                "Copied typing cloud save failed:",
-                cloudError
-            );
-
-            showError(
-                "Copy Failed",
-                "The typing was copied locally but could not be saved to your account."
-            );
-
-            return;
-        }
-
-        console.log(
-            "Copied typing saved to cloud."
+        sessionStorage.setItem(
+            "opsPendingCopiedTyping",
+            JSON.stringify(
+                copiedTemplate
+            )
         );
 
-        showSuccess(
-            "Typing copied successfully!"
-        );
-
-        setTimeout(() => {
-            window.location.href =
-                "index.html?copied=1";
-        }, 800);
+        window.location.href =
+            "index.html?copied=1";
     }
 );
 
@@ -3499,13 +3724,17 @@ if (viewMode) {
         viewModeLabel.style.display = "";
     }
 
-    if (backToDatabaseBtn) {
-        backToDatabaseBtn.style.display = "";
-    }
+if (backToDatabaseBtn) {
+    backToDatabaseBtn.style.display = "";
+}
 
-    if (duplicateTypingBtn) {
-        duplicateTypingBtn.style.display = "";
-    }
+if (backToPublisherProfileBtn) {
+    backToPublisherProfileBtn.style.display = "";
+}
+
+if (duplicateTypingBtn) {
+    duplicateTypingBtn.style.display = "";
+}
 
     const viewYouTubeToggle =
         document.getElementById(
@@ -3603,15 +3832,166 @@ if (backToDatabaseBtn) {
     );
 }
 
-    accountBtn.addEventListener("click", (event) => {
+if (backToPublisherProfileBtn) {
+
+    backToPublisherProfileBtn.addEventListener(
+        "click",
+        () => {
+
+            if (
+                !viewMode ||
+                !viewedTemplate?.publisherUserId
+            ) {
+                return;
+            }
+
+            window.location.href =
+                `profile.html?user=${encodeURIComponent(
+                    viewedTemplate.publisherUserId
+                )}`;
+        }
+    );
+}
+
+accountBtn.addEventListener("click", async (event) => {
     event.stopPropagation();
 
-    const accountMenu = document.getElementById("accountMenu");
+    const accountMenu =
+        document.getElementById("accountMenu");
 
-    if (accountMenu) {
-        accountMenu.classList.toggle("open");
+    const openAuthBtn =
+        document.getElementById("openAuthBtn");
+
+    const changeAccountBtn =
+        document.getElementById("changeAccountBtn");
+
+    const logoutAccountBtn =
+        document.getElementById("logoutAccountBtn");
+
+    if (!accountMenu) {
+        return;
     }
+
+    const {
+        data: { user }
+    } = await supabaseClient.auth.getUser();
+
+    /*
+        Logged in:
+        username + logout.
+
+        Logged out:
+        sign up / login.
+    */
+    if (openAuthBtn) {
+        openAuthBtn.style.display =
+            user ? "none" : "block";
+    }
+
+    if (changeAccountBtn) {
+        changeAccountBtn.style.display =
+            user ? "block" : "none";
+    }
+
+    if (logoutAccountBtn) {
+        logoutAccountBtn.style.display =
+            user ? "block" : "none";
+    }
+
+    accountMenu.classList.toggle("open");
 });
+
+
+const viewProfileBtn =
+    document.getElementById("viewProfileBtn");
+
+if (viewProfileBtn) {
+    viewProfileBtn.addEventListener(
+        "click",
+        async () => {
+            const {
+                data: { user }
+            } =
+                await supabaseClient.auth.getUser();
+
+            if (!user) {
+                showError(
+                    "Not Logged In",
+                    "Please log in to view your profile."
+                );
+
+                return;
+            }
+
+            window.location.href =
+                `profile.html?user=${encodeURIComponent(
+                    user.id
+                )}`;
+        }
+    );
+}
+
+
+const openAuthBtn =
+    document.getElementById("openAuthBtn");
+
+const authMenu =
+    document.getElementById("authMenu");
+
+if (openAuthBtn && authMenu) {
+    openAuthBtn.addEventListener(
+        "click",
+        event => {
+            event.stopPropagation();
+
+            const accountMenu =
+                document.getElementById(
+                    "accountMenu"
+                );
+
+            accountMenu?.classList.remove(
+                "open"
+            );
+
+            authMenu.classList.add(
+                "open"
+            );
+        }
+    );
+}
+
+const usernameMenu =
+    document.getElementById("usernameMenu");
+
+const changeAccountBtn =
+    document.getElementById(
+        "changeAccountBtn"
+    );
+
+if (
+    changeAccountBtn &&
+    usernameMenu
+) {
+    changeAccountBtn.addEventListener(
+        "click",
+        event => {
+            event.stopPropagation();
+
+            const accountMenu =
+                document.getElementById(
+                    "accountMenu"
+                );
+
+            accountMenu?.classList.remove(
+                "open"
+            );
+
+            usernameMenu.classList.add(
+                "open"
+            );
+        }
+    );
+}
 
 if (notificationsPageBtn) {
     notificationsPageBtn.addEventListener(
@@ -3783,6 +4163,10 @@ render();
 
     themeBtn.addEventListener("click", () => {
 darkMode = !darkMode;
+localStorage.setItem(
+    "opsDarkMode",
+    String(darkMode)
+);
 saveAll();
 render();
     });
@@ -4185,6 +4569,89 @@ showPopup(
                     "public"
                 );
             }
+        },
+        {
+            text: "Publish Definitions",
+
+action: async () => {
+    const {
+        data: profile,
+        error: profileError
+    } = await supabaseClient
+        .from("profiles")
+        .select("username")
+        .eq("id", user.id)
+        .single();
+
+    if (profileError || !profile) {
+        console.error(
+            "Definition profile lookup failed:",
+            profileError
+        );
+
+        showError(
+            "Publish Failed",
+            "Could not load your profile."
+        );
+
+        return;
+    }
+
+    const description =
+        prompt(
+            "Add a short description for these definitions:",
+            ""
+        );
+
+    /*
+        Cancel means don't publish yet.
+    */
+    if (description === null) {
+        return;
+    }
+
+    const { error } =
+        await supabaseClient
+            .from("public_definitions")
+            .insert([{
+                user_id: user.id,
+                username:
+                    profile.username,
+
+                /*
+                    The database column is still
+                    named "title" for now, but it
+                    now represents the definition
+                    set's own description — never
+                    the typing's title.
+                */
+                title:
+                    description.trim(),
+
+                coins:
+                    structuredClone(
+                        activeTemplate.coins
+                    )
+            }]);
+
+    if (error) {
+        console.error(
+            "Definition publish failed:",
+            error
+        );
+
+        showError(
+            "Publish Failed",
+            error.message
+        );
+
+        return;
+    }
+
+    showSuccess(
+        "Definitions Published"
+    );
+}
         }
     ]
 );
@@ -4642,18 +5109,24 @@ async function handlePendingGuestImport(user) {
         const cloudResult =
             await loadTemplatesFromCloud();
 
-        if (cloudResult === false) {
+if (cloudResult === false) {
 
-            /*
-                Truly new account:
-                create its fresh blank workspace
-                and save that to Supabase.
-            */
-            loadTemplates();
+    /*
+        Truly new account:
+        create its fresh blank workspace
+        and save that to Supabase.
+    */
+    loadTemplates();
 
-            await saveTemplatesToCloud();
+    // Supabase confirmed there is no existing
+    // cloud workspace, and the user explicitly
+    // chose to start this account fresh.
+    accountWorkspaceReady = true;
 
-        } else {
+    await saveTemplatesToCloud();
+}
+        
+        else {
 
             console.log(
                 "Existing cloud workspace found. Preserving it instead of creating a blank workspace."
@@ -4701,12 +5174,16 @@ async function handlePendingGuestImport(user) {
                             );
 
                             resetWorkspaceMemory();
+loadTemplates();
 
-                            loadTemplates();
+// The user explicitly chose to make this
+// captured guest workspace the account's
+// initial workspace.
+accountWorkspaceReady = true;
 
-                            await saveTemplatesToCloud();
+await saveTemplatesToCloud();
 
-                            resolve();
+resolve();
 
                         } catch (error) {
 
@@ -4736,6 +5213,11 @@ async function init() {
 
     const copiedFromDatabase = new URLSearchParams(window.location.search).get("copied");
 
+    const definitionsCopied =
+    new URLSearchParams(
+        window.location.search
+    ).get("definitionsCopied");
+    
 if (copiedFromDatabase === "1") {
     showProjectsMenu = true;
 }
@@ -4773,7 +5255,10 @@ if (initialUser) {
     loads the correct account workspace
     after the user chooses.
 */
-if (!handledPendingGuestImport) {
+if (
+    !handledPendingGuestImport &&
+    !initialUser
+) {
     loadTemplates();
 }
 
@@ -4798,24 +5283,157 @@ if (!viewMode) {
 
 if (cloudResult === false) {
     console.log(
-        "No cloud data found. Saving local typings to cloud..."
+        "No cloud workspace exists. Creating the account's first workspace..."
     );
 
-    await saveTemplatesToCloud();
-} else if (cloudResult === "local-newer") {
+    loadTemplates();
+
+    // Supabase explicitly confirmed that this
+    // account has no existing cloud workspace.
+    // It is now safe to create its first one.
+    accountWorkspaceReady = true;
+
+    await flushCloudSave();
+}
+
+else if (cloudResult === "local-newer") {
     console.log(
         "Local data is newer. Syncing newest local data to cloud..."
     );
 
     await saveTemplatesToCloud();
 }
+
+    }
+}
+
+/*
+    If a public typing was copied, the real
+    account workspace has now been loaded.
+
+    Add the copied typing to that workspace
+    instead of replacing the workspace.
+*/
+const pendingCopiedTyping =
+    sessionStorage.getItem(
+        "opsPendingCopiedTyping"
+    );
+
+if (
+    copiedFromDatabase === "1" &&
+    pendingCopiedTyping &&
+    !viewMode
+) {
+    try {
+        const copiedTemplate =
+            normalizeTemplate(
+                JSON.parse(
+                    pendingCopiedTyping
+                )
+            );
+
+        /*
+            Give it a fresh ID so it can never
+            collide with an existing saved typing.
+        */
+        copiedTemplate.id =
+            `copy-${Date.now().toString(36)}-${Math.random()
+                .toString(36)
+                .slice(2, 7)}`;
+
+        templates.push(
+            copiedTemplate
+        );
+
+        activeTemplateId =
+            copiedTemplate.id;
+
+        sessionStorage.removeItem(
+            "opsPendingCopiedTyping"
+        );
+
+        saveAll();
+
+        showProjectsMenu = true;
+
+        showSuccess(
+            "Typing copied successfully!"
+        );
+    } catch (error) {
+        console.error(
+            "Unable to import copied typing:",
+            error
+        );
+
+        showError(
+            "Copy Failed",
+            "The copied typing could not be added."
+        );
+    }
+}
+
+/*
+    If a published definition set was copied,
+    the real account workspace has now loaded.
+
+    Apply only its coin definitions to the
+    currently active typing.
+*/
+const pendingCopiedDefinitions =
+    sessionStorage.getItem(
+        "opsPendingCopiedDefinitions"
+    );
+
+if (
+    definitionsCopied === "1" &&
+    pendingCopiedDefinitions &&
+    !viewMode
+) {
+    try {
+        const copiedCoins =
+            JSON.parse(
+                pendingCopiedDefinitions
+            );
+
+        const activeTemplate =
+            getActiveTemplate();
+
+        if (
+            activeTemplate &&
+            Array.isArray(copiedCoins)
+        ) {
+            activeTemplate.coins =
+                normalizeCoins(
+                    copiedCoins
+                );
+
+            sessionStorage.removeItem(
+                "opsPendingCopiedDefinitions"
+            );
+
+            saveAll();
+
+            showSuccess(
+                "Definitions copied successfully!"
+            );
+        }
+    } catch (error) {
+        console.error(
+            "Unable to import copied definitions:",
+            error
+        );
+
+        showError(
+            "Copy Failed",
+            "The copied definitions could not be added."
+        );
     }
 }
 
 wireEvents();
 
 render();
-
+ 
     const imageUploadArea = document.getElementById("imageUploadArea");
     const imageFileInput = document.getElementById("imageFileInput");
     const addImageBtn = document.getElementById("addImageBtn");
@@ -6091,13 +6709,16 @@ async function checkViewMode() {
         return;
     }
 
-    viewedTemplate = {
+viewedTemplate = {
 
-        id: data.id,
+    id: data.id,
 
-        title: data.title,
+    publisherUserId:
+        data.user_id,
 
-        notes: data.data.notes || "",
+    title: data.title,
+
+    notes: data.data.notes || "",
 
         selections: data.data.selections || {},
 
@@ -6527,21 +7148,19 @@ setWorkspaceForUser(
 
 resetWorkspaceMemory();
 
-// Load this account's local cache first,
-// if one exists.
-loadTemplates();
-
-// Then resolve it against this account's
-// Supabase workspace.
+// Check Supabase before creating or loading
+// any browser-local account workspace.
 const cloudResult =
     await loadTemplatesFromCloud();
 
 if (cloudResult === false) {
-    await saveTemplatesToCloud();
-} else if (
-    cloudResult === "local-newer"
-) {
-    await saveTemplatesToCloud();
+    console.log(
+        "No cloud workspace exists. Creating the account's first workspace..."
+    );
+
+    loadTemplates();
+
+    await flushCloudSave();
 }
 
 await createProfileIfMissing();
@@ -6559,14 +7178,27 @@ document.getElementById(
         "Log out?",
         async () => {
 
-            // Finish saving the signed-in
-            // account before leaving it.
-            await flushCloudSave();
+// Finish saving the signed-in
+// account before leaving it.
+const saveSucceeded =
+    await flushCloudSave();
 
-            const { error } =
-                await supabaseClient
-                    .auth
-                    .signOut();
+if (!saveSucceeded) {
+    console.error(
+        "Logout cancelled because the final cloud save did not succeed."
+    );
+
+    showError(
+        "Could not safely save your account. Please try logging out again."
+    );
+
+    return;
+}
+
+const { error } =
+    await supabaseClient
+        .auth
+        .signOut();
 
             if (error) {
                 console.error(
@@ -6694,6 +7326,16 @@ document.getElementById("saveUsernameBtn").onclick = async () => {
     }
 
     usernameInput.disabled = true;
+
+    const usernameMenu =
+        document.getElementById(
+            "usernameMenu"
+        );
+
+    usernameMenu?.classList.remove(
+        "open"
+    );
+
     showSuccess("Username Saved");
 };
 
@@ -6901,3 +7543,4 @@ async function createProfileIfMissing() {
         "Missing profile created successfully."
     );
 }
+
