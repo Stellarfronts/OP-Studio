@@ -1520,11 +1520,6 @@ typings.forEach((typing) => {
             ).toLocaleDateString()
             : "Unknown date";
 
-    const possibilityCount =
-        getProfilePossibilityCount(
-            typing
-        );
-
     card.innerHTML = `
         <div class="typing-card-header">
 
@@ -1537,19 +1532,6 @@ typings.forEach((typing) => {
         <h2>
             ${escapeHtml(title)}
         </h2>
-
-<div class="typing-card-info">
-    ${
-        possibilityCount !== null
-            ? `
-                <span>
-                    ${possibilityCount}
-                    result${possibilityCount === 1 ? "" : "s"}
-                </span>
-            `
-            : ""
-    }
-</div>
 
 <button
     class="reveal-type-btn"

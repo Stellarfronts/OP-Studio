@@ -838,11 +838,6 @@ function loadTemplates() {
                 parsed.editingLocked
             );
 
-        darkMode =
-            Boolean(
-                parsed.darkMode
-            );
-
         activeTemplateId =
             parsed.activeTemplateId ||
             templates[0].id;
@@ -940,7 +935,6 @@ if (
     }
 
     editingLocked = Boolean(cloudData.editingLocked);
-    darkMode = Boolean(cloudData.darkMode);
     showTrash = Boolean(cloudData.showTrash);
 
     if (cloudData.activeTemplateId &&
@@ -2400,6 +2394,164 @@ function renderImageGallery(activeTemplate) {
     const notesPanel = document.querySelector(".notes-panel");
     const notesArea = document.getElementById("notesArea");
 
+    notesArea.parentElement
+    .querySelectorAll(
+        ".notes-scroll-indicator, .notes-fade"
+    )
+    .forEach(element => element.remove());
+
+const notesScrollIndicator =
+    document.createElement("div");
+
+notesScrollIndicator.className =
+    "notes-scroll-indicator";
+
+notesArea.parentElement.appendChild(
+    notesScrollIndicator
+);
+
+const notesFadeTop =
+    document.createElement("div");
+
+notesFadeTop.className =
+    "notes-fade notes-fade-top";
+
+notesArea.parentElement.appendChild(
+    notesFadeTop
+);
+
+function updateNotesScrollIndicator() {
+    const scrollable =
+        notesArea.scrollHeight > notesArea.clientHeight;
+
+    const parentRect =
+        notesArea.parentElement.getBoundingClientRect();
+
+    const areaRect =
+        notesArea.getBoundingClientRect();
+
+    const notesTop =
+        areaRect.top - parentRect.top;
+
+    notesFadeTop.style.top =
+        `${notesTop}px`;
+
+    notesFadeBottom.style.top =
+        `${notesBottom - 28}px`;
+
+    const atTop =
+        notesArea.scrollTop <= 1;
+
+    notesFadeTop.classList.toggle(
+        "visible",
+        scrollable && !atTop
+    );
+
+    if (!scrollable) {
+        notesScrollIndicator.style.display = "none";
+        return;
+    }
+
+    notesScrollIndicator.style.display = "block";
+
+    const visibleRatio =
+        notesArea.clientHeight /
+        notesArea.scrollHeight;
+
+    const indicatorHeight =
+        Math.max(
+            20,
+            notesArea.clientHeight * visibleRatio
+        );
+
+    const maxIndicatorTravel =
+        notesArea.clientHeight -
+        indicatorHeight;
+
+    const maxScroll =
+        notesArea.scrollHeight -
+        notesArea.clientHeight;
+
+    const scrollRatio =
+        maxScroll > 0
+            ? notesArea.scrollTop / maxScroll
+            : 0;
+
+    notesScrollIndicator.style.height =
+        `${indicatorHeight}px`;
+
+    notesScrollIndicator.style.top =
+        `${notesTop +
+        (maxIndicatorTravel * scrollRatio)}px`;
+}
+
+requestAnimationFrame(
+    updateNotesScrollIndicator
+);
+
+notesArea.addEventListener(
+    "scroll",
+    updateNotesScrollIndicator
+);
+
+let notesScrollbarDragging = false;
+let notesScrollbarStartY = 0;
+let notesScrollbarStartScroll = 0;
+
+notesScrollIndicator.addEventListener(
+    "mousedown",
+    (event) => {
+        notesScrollbarDragging = true;
+        notesScrollbarStartY = event.clientY;
+        notesScrollbarStartScroll =
+            notesArea.scrollTop;
+
+        event.preventDefault();
+    }
+);
+
+document.addEventListener(
+    "mousemove",
+    (event) => {
+        if (!notesScrollbarDragging) return;
+
+        const indicatorHeight =
+            notesScrollIndicator.offsetHeight;
+
+        const availableTravel =
+            notesArea.clientHeight -
+            indicatorHeight;
+
+        const availableScroll =
+            notesArea.scrollHeight -
+            notesArea.clientHeight;
+
+        if (availableTravel <= 0) return;
+
+        const movement =
+            event.clientY -
+            notesScrollbarStartY;
+
+        notesArea.scrollTop =
+            notesScrollbarStartScroll +
+            movement *
+            (availableScroll /
+            availableTravel);
+    }
+);
+
+document.addEventListener(
+    "mouseup",
+    () => {
+        notesScrollbarDragging = false;
+    }
+);
+
+window.addEventListener(
+    "resize",
+    updateNotesScrollIndicator
+);
+
     if (!imageUploadArea || !imagePlaceholder || !imagePreviewContainer) {
         return;
     }
@@ -2450,6 +2602,9 @@ const previewMaxWidth =
 const maxCardWidth =
     previewMaxWidth;
 
+    const shouldStartAtMax =
+    image.startAtMax === true;
+
 const maxCardHeight = Math.max(
     160,
     (imageUploadArea.clientHeight || 0) - 24
@@ -2466,8 +2621,14 @@ const maxCardHeight = Math.max(
             baseRatio = 180 / 220;
         }
 
-        let baseWidth = Math.max(140, Math.min(maxCardWidth, savedWidth));
-        let baseHeight = baseWidth * baseRatio;
+let baseWidth = shouldStartAtMax
+    ? maxCardWidth
+    : Math.max(
+        140,
+        Math.min(maxCardWidth, savedWidth)
+    );
+
+let baseHeight = baseWidth * baseRatio;
         if (baseHeight > maxCardHeight) {
             baseHeight = maxCardHeight;
             baseWidth = Math.max(140, Math.min(maxCardWidth, baseHeight / baseRatio));
@@ -2679,7 +2840,7 @@ if (viewMode) {
     projectsBtn.textContent = "Saved Typings";
     themeBtn.textContent = darkMode ? "Light" : "Dark";
 } else {
-    projectsBtn.textContent = showProjectsMenu ? "Close" : "Saved Typings";
+projectsBtn.textContent = "Saved Typings";
     lockBtn.textContent = editingLocked ? "Edit" : "Lock";
     themeBtn.textContent = darkMode ? "Light" : "Dark";
 }
@@ -2706,7 +2867,12 @@ if (notificationsMenu) {
         const selectedValue = activeTemplate.selections[coin.id];
 
         const optionGrid = document.createElement("div");
-        optionGrid.className = "coin-option-grid";
+
+optionGrid.className =
+    "coin-option-grid" +
+    (coin.id === "special"
+        ? " special-option-grid"
+        : "");
 
         if (coin.options.length === 2) {
             const pair = document.createElement("div");
@@ -3558,7 +3724,9 @@ demonInput.addEventListener(
     const filtered = filterTypesBySelections(typeLibrary, activeTemplate.selections);
     const totalPossible = typeLibrary.length || 1;
     const eliminated = Math.min(100, Math.max(0, Math.round(((totalPossible - filtered.length) / totalPossible) * 100)));
-    document.getElementById("typesRemaining").textContent = `${filtered.length} Types`;
+document.getElementById("typesRemaining").textContent =
+    `${filtered.length} ${filtered.length === 1 ? "Type" : "Types"}`;
+
     document.getElementById("typesEliminated").textContent = `${eliminated}% Eliminated`;
     progressFill.style.width = `${Math.min(100, Math.max(0, eliminated))}%`;
     const typingPreview = document.getElementById("typingPreview");
@@ -3898,7 +4066,20 @@ accountBtn.addEventListener("click", async (event) => {
             user ? "block" : "none";
     }
 
-    accountMenu.classList.toggle("open");
+const willOpen =
+    !accountMenu.classList.contains("open");
+
+showProjectsMenu = false;
+showNotificationsMenu = false;
+
+settingsMenu?.classList.remove("open");
+
+accountMenu.classList.toggle(
+    "open",
+    willOpen
+);
+
+render();
 });
 
 
@@ -4001,6 +4182,14 @@ if (notificationsPageBtn) {
 
             showNotificationsMenu =
                 !showNotificationsMenu;
+
+                showProjectsMenu = false;
+
+document
+    .getElementById("accountMenu")
+    ?.classList.remove("open");
+
+settingsMenu?.classList.remove("open");
 
             showProjectsMenu = false;
 
@@ -4118,16 +4307,22 @@ render();
         }
     });
 
-    projectsBtn.addEventListener(
+projectsBtn.addEventListener(
     "click",
     (event) => {
         event.stopPropagation();
 
-        showProjectsMenu =
+        const willOpen =
             !showProjectsMenu;
 
-        showNotificationsMenu =
-            false;
+        showProjectsMenu = willOpen;
+        showNotificationsMenu = false;
+
+        document
+            .getElementById("accountMenu")
+            ?.classList.remove("open");
+
+        settingsMenu?.classList.remove("open");
 
         render();
     }
@@ -4171,10 +4366,25 @@ saveAll();
 render();
     });
 
-    settingsBtn?.addEventListener("click", (event) => {
+settingsBtn?.addEventListener("click", (event) => {
     event.stopPropagation();
 
-    settingsMenu?.classList.toggle("open");
+    const willOpen =
+        !settingsMenu?.classList.contains("open");
+
+    showProjectsMenu = false;
+    showNotificationsMenu = false;
+
+    document
+        .getElementById("accountMenu")
+        ?.classList.remove("open");
+
+    settingsMenu?.classList.toggle(
+        "open",
+        willOpen
+    );
+
+    render();
 });
 
 document.addEventListener("click", (event) => {
@@ -6640,25 +6850,53 @@ if (imageUploadArea && imageFileInput && addImageBtn) {
                         const aspectRatio = naturalHeight / naturalWidth;
 
                         const notesWidth = Math.max(140, document.getElementById("notesArea")?.clientWidth || 220);
-                        const areaWidth = Math.max(140, (imageUploadArea.clientWidth || 0) - 2);
-                        const maxWidth = Math.max(140, Math.min(notesWidth, areaWidth));
-                        const maxHeight = Math.max(160, (imageUploadArea.clientHeight || 0) - 24);
+const previewContainer =
+    document.getElementById("imagePreviewContainer");
 
-                        let size = Math.max(140, Math.min(maxWidth, naturalWidth));
-                        let height = size * aspectRatio;
-                        if (height > maxHeight) {
-                            height = maxHeight;
-                            size = Math.max(140, Math.min(maxWidth, height / aspectRatio));
-                        }
+const maxWidth = Math.max(
+    140,
+    previewContainer?.clientWidth || 140
+);
 
-                        activeTemplate.images.push({
-                            src: dataUrl,
-                            size: Math.round(size),
-                            height: Math.round(height),
-                            aspectRatio
-                        });
+const maxHeight = Math.max(
+    160,
+    (imageUploadArea.clientHeight || 0) - 24
+);
+
+let size = maxWidth;
+let height = size * aspectRatio;
+
+if (height > maxHeight) {
+    height = maxHeight;
+    size = Math.max(
+        140,
+        Math.min(
+            maxWidth,
+            height / aspectRatio
+        )
+    );
+}
+
+activeTemplate.images.push({
+    src: dataUrl,
+    size: Math.round(size),
+    height: Math.round(height),
+    aspectRatio,
+    startAtMax: true
+});
                         saveAll();
 render();
+
+const newImage =
+    activeTemplate.images[
+        activeTemplate.images.length - 1
+    ];
+
+if (newImage?.startAtMax) {
+    delete newImage.startAtMax;
+    saveAll();
+}
+
                     };
                     probe.onerror = () => {
                         activeTemplate.images.push({
@@ -7312,18 +7550,64 @@ document.getElementById("saveUsernameBtn").onclick = async () => {
         return;
     }
 
-    const { error } = await supabaseClient
-        .from("profiles")
+const { error } = await supabaseClient
+    .from("profiles")
+    .update({
+        username: newUsername
+    })
+    .eq("id", user.id);
+
+if (error) {
+    console.error(error);
+    showError("Username Failed", error.message);
+    return;
+}
+
+/* Update username on all older published typings */
+const { error: typingsUsernameError } =
+    await supabaseClient
+        .from("public_typings")
         .update({
             username: newUsername
         })
-        .eq("id", user.id);
+        .eq("user_id", user.id);
 
-    if (error) {
-        console.error(error);
-        showError("Username Failed", error.message);
-        return;
-    }
+        /* Update username on all older published definitions */
+const { error: definitionsUsernameError } =
+    await supabaseClient
+        .from("public_definitions")
+        .update({
+            username: newUsername
+        })
+        .eq("user_id", user.id);
+
+if (definitionsUsernameError) {
+    console.error(
+        "Published definition username update failed:",
+        definitionsUsernameError
+    );
+
+    showError(
+        "Username Partially Updated",
+        "Your username changed, but older published definitions could not be updated."
+    );
+
+    return;
+}
+
+if (typingsUsernameError) {
+    console.error(
+        "Published typing username update failed:",
+        typingsUsernameError
+    );
+
+    showError(
+        "Username Partially Updated",
+        "Your profile username changed, but older published typings could not be updated."
+    );
+
+    return;
+}
 
     usernameInput.disabled = true;
 

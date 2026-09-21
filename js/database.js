@@ -29,8 +29,8 @@ let currentUser = null;
 let userNotifications = [];
 let bookmarkedTypingIds = new Set();
 
-let revealAllTypes = false;
-let databaseRevealAll = null;
+let searchTypesMode = false;
+let databaseSearchTypes = null;
 
 async function loadNotifications() {
     if (!notificationsList) {
@@ -647,17 +647,36 @@ function getFilteredTypings() {
         databaseTypeFilter?.value || "all";
 
     const filtered = publicTypings.filter((typing) => {
-        const title = (typing.title || "").toLowerCase();
-        const username = (typing.username || "").toLowerCase();
+const title =
+    (typing.title || "").toLowerCase();
 
-        // Search
+const username =
+    (typing.username || "").toLowerCase();
+
+const type =
+    (
+        getTypingType(typing) ||
+        buildDatabaseTypeLabel(
+            typing.data?.selections || {}
+        ) ||
+        ""
+    ).toLowerCase();
+
+// Search
+if (search) {
+    if (searchTypesMode) {
+        if (!type.includes(search)) {
+            return false;
+        }
+    } else {
         if (
-            search &&
             !title.includes(search) &&
             !username.includes(search)
         ) {
             return false;
         }
+    }
+}
 
         // Type
         if (selectedType !== "all") {
@@ -690,57 +709,58 @@ return true;
     return sortTypings(filtered);
 }
 
-function setupRevealAllTypesButton() {
-    if (!clearDatabaseFilters || databaseRevealAll) {
+function setupSearchTypesButton() {
+    if (!clearDatabaseFilters || databaseSearchTypes) {
         return;
     }
 
-    databaseRevealAll = document.createElement("button");
-    databaseRevealAll.type = "button";
-    databaseRevealAll.id = "databaseRevealAll";
-    databaseRevealAll.textContent = "Reveal All Types";
+    databaseSearchTypes =
+        document.createElement("button");
 
-    // Give it the same styling as the existing Clear Filters button.
-    databaseRevealAll.className =
+    databaseSearchTypes.type = "button";
+    databaseSearchTypes.id =
+        "databaseSearchTypes";
+
+    databaseSearchTypes.textContent =
+        "Search Types";
+
+    databaseSearchTypes.className =
         clearDatabaseFilters.className;
 
+    /*
+        Put Search Types where Clear Filters
+        currently is, then move Clear Filters
+        to the end of the filter row.
+    */
     clearDatabaseFilters.insertAdjacentElement(
-        "afterend",
-        databaseRevealAll
+        "beforebegin",
+        databaseSearchTypes
     );
 
-    databaseRevealAll.addEventListener(
+    clearDatabaseFilters.parentElement.appendChild(
+        clearDatabaseFilters
+    );
+
+    databaseSearchTypes.addEventListener(
         "click",
         () => {
-            revealAllTypes = !revealAllTypes;
+            searchTypesMode = !searchTypesMode;
 
-            databaseRevealAll.textContent =
-                revealAllTypes
-                    ? "Hide All Types"
-                    : "Reveal All Types";
+            databaseSearchTypes.classList.toggle(
+                "active",
+                searchTypesMode
+            );
 
-            document
-                .querySelectorAll(
-                    "#databaseEntries .reveal-type-btn"
-                )
-                .forEach((button) => {
-                    const finalType =
-                        button.dataset.type || "";
+            if (databaseSearch) {
+                databaseSearch.value = "";
 
-                    if (!finalType) {
-                        return;
-                    }
+                databaseSearch.placeholder =
+                    searchTypesMode
+                        ? "Search types..."
+                        : "Search usernames or titles...";
+            }
 
-                    button.textContent =
-                        revealAllTypes
-                            ? finalType
-                            : "Reveal Type";
-
-                    button.dataset.revealed =
-                        revealAllTypes
-                            ? "true"
-                            : "false";
-                });
+            renderPublicTypings();
         }
     );
 }
@@ -804,8 +824,7 @@ const updatedDate =
         ).toLocaleString()
         : "";
 
-        const possibilityCount = getPossibilityCount(typing);
-        const typingType = getTypingType(typing);
+const typingType = getTypingType(typing);
 
         card.innerHTML = `
 <div class="typing-card-header">
@@ -870,12 +889,6 @@ const updatedDate =
            </div>`
         : ""
 }
-
-            <div class="typing-card-info">
-    ${possibilityCount !== null
-        ? `<span>${possibilityCount} result${possibilityCount === 1 ? "" : "s"}</span>`
-        : ""}
-</div>
 
         <button class="reveal-type-btn" type="button">
     Reveal Type
@@ -942,13 +955,8 @@ const finalType =
 
 revealBtn.dataset.type = finalType;
 
-if (revealAllTypes && finalType) {
-    revealBtn.textContent = finalType;
-    revealBtn.dataset.revealed = "true";
-} else {
-    revealBtn.textContent = "Reveal Type";
-    revealBtn.dataset.revealed = "false";
-}
+revealBtn.textContent = "Reveal Type";
+revealBtn.dataset.revealed = "false";
 
 revealBtn.onclick = () => {
     if (!finalType) {
@@ -1973,7 +1981,7 @@ const { data, error } = await supabaseClient
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-    setupRevealAllTypesButton();
+    setupSearchTypesButton();
     loadPublicTypings();
 
     if (notificationsBtn) {

@@ -11,6 +11,15 @@
 
 <body>
 
+<script>
+    if (
+        localStorage.getItem("opsDarkMode") === "true"
+    ) {
+        document.body.classList.add("dark");
+        document.documentElement.style.colorScheme = "dark";
+    }
+</script>
+
     <main class="profile-page">
 
         <div class="profile-header">
