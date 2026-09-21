@@ -79,25 +79,6 @@
 
             <div id="profileStatus"></div>
 
-            <div class="profile-stats">
-
-                <div class="profile-stat">
-                    <strong id="profileTypingCount">0</strong>
-                    <span>Typings</span>
-                </div>
-
-                <div class="profile-stat">
-                    <strong id="profileFollowerCount">0</strong>
-                    <span>Followers</span>
-                </div>
-
-                <div class="profile-stat">
-                    <strong id="profileFollowingCount">0</strong>
-                    <span>Following</span>
-                </div>
-
-            </div>
-
             <button id="profileFollowBtn" type="button">
     Follow
 </button>
@@ -124,7 +105,56 @@
 
 <section class="profile-typings-section">
 
-    <h2>Published Typings</h2>
+<div class="profile-content-row">
+
+    <div class="profile-row-left">
+
+        <button
+            id="profileRowEditBtn"
+            type="button">
+            Edit Profile
+        </button>
+
+        <div class="profile-stat">
+            <strong id="profileTypingCount">0</strong>
+            <span>Typings</span>
+        </div>
+
+    </div>
+
+    <div class="profile-content-tabs">
+
+<button
+    id="profileTypingsTab"
+    class="profile-content-tab active"
+    type="button">
+    Typings
+</button>
+
+<button
+    id="profileDefinitionsTab"
+    class="profile-content-tab"
+    type="button">
+    Definitions
+</button>
+
+    </div>
+
+    <div class="profile-row-right">
+
+        <div class="profile-stat">
+            <strong id="profileFollowerCount">0</strong>
+            <span>Followers</span>
+        </div>
+
+        <div class="profile-stat">
+            <strong id="profileFollowingCount">0</strong>
+            <span>Following</span>
+        </div>
+
+    </div>
+
+</div>
 
     <div class="profile-typing-controls">
 
@@ -150,17 +180,6 @@
                 <option value="all">
                     All Types
                 </option>
-            </select>
-
-            <select id="profileTypingPossibilitiesFilter">
-                <option value="all">
-                    All Result Counts
-                </option>
-                <option value="1">1 Result</option>
-                <option value="2-5">2–5 Results</option>
-                <option value="6-10">6–10 Results</option>
-                <option value="11-20">11–20 Results</option>
-                <option value="21+">21+ Results</option>
             </select>
 
             <select id="profileTypingDateFilter">
@@ -198,6 +217,46 @@
     <div id="profileTypings">
         Loading typings...
     </div>
+
+<div
+    id="profileDefinitionsSection"
+    style="display: none;">
+
+    <div class="profile-typing-controls profile-definition-controls">
+
+        <input
+            id="profileDefinitionSearch"
+            type="text"
+placeholder="Search definitions..."
+
+        <select id="profileDefinitionSort">
+            <option value="newest">Newest</option>
+            <option value="oldest">Oldest</option>
+            <option value="title-asc">Title A–Z</option>
+            <option value="title-desc">Title Z–A</option>
+        </select>
+
+        <select id="profileDefinitionDateFilter">
+            <option value="all">Any Date</option>
+            <option value="today">Today</option>
+            <option value="week">Past Week</option>
+            <option value="month">Past Month</option>
+            <option value="year">Past Year</option>
+        </select>
+
+        <button
+            id="clearProfileDefinitionFilters"
+            type="button">
+            Clear Filters
+        </button>
+
+    </div>
+
+    <div id="profileDefinitions">
+        Loading definitions...
+    </div>
+
+</div>
 
 </section>
 

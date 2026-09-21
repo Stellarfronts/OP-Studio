@@ -3484,9 +3484,18 @@ pairRow.addEventListener("pointerdown", (event) => {
                         option.value
                     ] || 0;
 
-                card.className = "option-card";
+card.className = "option-card";
 
-                if (currentState === 1) {
+if (
+    option.value === "(P)" ||
+    option.value === "(B)"
+) {
+    card.classList.add(
+        "special-rainbow-reversed"
+    );
+}
+
+if (currentState === 1) {
     card.classList.add(
         "special-half-selected"
     );

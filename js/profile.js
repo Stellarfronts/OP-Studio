@@ -11,11 +11,6 @@ const profileTypingSort =
 const profileTypingTypeFilter =
     document.getElementById("profileTypingTypeFilter");
 
-const profileTypingPossibilitiesFilter =
-    document.getElementById(
-        "profileTypingPossibilitiesFilter"
-    );
-
 const profileTypingDateFilter =
     document.getElementById("profileTypingDateFilter");
 
@@ -30,6 +25,7 @@ const profileRevealAllTypes =
     );
 
 let profilePublishedTypings = [];
+let profilePublishedDefinitions = [];
 let profileRevealAllActive = false;
 const backToDatabaseBtn =
     document.getElementById("backToDatabaseBtn");
@@ -127,7 +123,7 @@ async function loadProfile() {
 
 if (profileBio) {
     profileBio.textContent =
-        profile.bio || "No bio yet.";
+        profile.bio || "No bio";
 }
 
 if (
@@ -135,11 +131,15 @@ if (
     currentUser.id === profileUserId
 ) {
 
-    if (editProfileBtn) {
-        editProfileBtn.style.display = "";
-    }
+if (editProfileBtn) {
+    editProfileBtn.style.display = "";
+}
 
-    if (profileBioEditor) {
+if (profileRowEditBtn) {
+    profileRowEditBtn.style.display = "";
+}
+
+if (profileBioEditor) {
         profileBioEditor.style.display = "none";
     }
 
@@ -159,55 +159,15 @@ if (
         editProfileBtn.style.display = "none";
     }
 
+    if (profileRowEditBtn) {
+        profileRowEditBtn.style.display = "none";
+    }
+
     if (profileBioEditor) {
         profileBioEditor.style.display = "none";
     }
 }
 
-function openProfileEditor() {
-
-    if (
-        !currentUser ||
-        currentUser.id !== profileUserId
-    ) {
-        return;
-    }
-
-    if (profileBioEditor) {
-        profileBioEditor.style.display = "block";
-    }
-
-    if (editProfileBtn) {
-        editProfileBtn.style.display = "none";
-    }
-}
-
-
-function closeProfileEditor() {
-
-    if (profileBioEditor) {
-        profileBioEditor.style.display = "none";
-    }
-
-    if (editProfileBtn) {
-        editProfileBtn.style.display = "";
-    }
-}
-
-
-if (editProfileBtn) {
-    editProfileBtn.addEventListener(
-        "click",
-        openProfileEditor
-    );
-}
-
-if (cancelProfileEditBtn) {
-    cancelProfileEditBtn.addEventListener(
-        "click",
-        closeProfileEditor
-    );
-}
 
     // =========================
     // Load Profile Stats
@@ -267,6 +227,50 @@ updateProfileTypeFilter();
 renderFilteredProfileTypings();
 }
 
+function openProfileEditor() {
+
+    if (
+        !currentUser ||
+        currentUser.id !== profileUserId
+    ) {
+        return;
+    }
+
+    if (profileBioEditor) {
+        profileBioEditor.style.display = "block";
+    }
+
+    if (editProfileBtn) {
+        editProfileBtn.style.display = "none";
+    }
+}
+
+
+function closeProfileEditor() {
+
+    if (profileBioEditor) {
+        profileBioEditor.style.display = "none";
+    }
+
+    if (editProfileBtn) {
+        editProfileBtn.style.display = "";
+    }
+}
+
+
+if (editProfileBtn) {
+    editProfileBtn.addEventListener(
+        "click",
+        openProfileEditor
+    );
+}
+
+if (cancelProfileEditBtn) {
+    cancelProfileEditBtn.addEventListener(
+        "click",
+        closeProfileEditor
+    );
+}
 
 // =========================
 // Profile Stats
@@ -1226,10 +1230,6 @@ function getFilteredProfileTypings() {
         profileTypingTypeFilter?.value ||
         "all";
 
-    const possibilityFilter =
-        profileTypingPossibilitiesFilter?.value ||
-        "all";
-
     const dateFilter =
         profileTypingDateFilter?.value ||
         "all";
@@ -1259,71 +1259,6 @@ function getFilteredProfileTypings() {
                     ) !== selectedType
                 ) {
                     return false;
-                }
-
-
-                const count =
-                    getProfilePossibilityCount(
-                        typing
-                    );
-
-                if (
-                    possibilityFilter !==
-                    "all"
-                ) {
-
-                    if (count === null) {
-                        return false;
-                    }
-
-                    if (
-                        possibilityFilter ===
-                            "1" &&
-                        count !== 1
-                    ) {
-                        return false;
-                    }
-
-                    if (
-                        possibilityFilter ===
-                            "2-5" &&
-                        (
-                            count < 2 ||
-                            count > 5
-                        )
-                    ) {
-                        return false;
-                    }
-
-                    if (
-                        possibilityFilter ===
-                            "6-10" &&
-                        (
-                            count < 6 ||
-                            count > 10
-                        )
-                    ) {
-                        return false;
-                    }
-
-                    if (
-                        possibilityFilter ===
-                            "11-20" &&
-                        (
-                            count < 11 ||
-                            count > 20
-                        )
-                    ) {
-                        return false;
-                    }
-
-                    if (
-                        possibilityFilter ===
-                            "21+" &&
-                        count < 21
-                    ) {
-                        return false;
-                    }
                 }
 
 
@@ -1697,6 +1632,329 @@ profileTypings.appendChild(
 }
 
 // =========================
+// Published Definitions
+// =========================
+
+function getFilteredProfileDefinitions() {
+
+    const search =
+        (
+            document.getElementById(
+                "profileDefinitionSearch"
+            )?.value || ""
+        )
+            .trim()
+            .toLowerCase();
+
+    const sort =
+        document.getElementById(
+            "profileDefinitionSort"
+        )?.value || "newest";
+
+    const dateFilter =
+        document.getElementById(
+            "profileDefinitionDateFilter"
+        )?.value || "all";
+
+    const now = new Date();
+
+    const filtered =
+        profilePublishedDefinitions.filter(
+            definitionSet => {
+
+                const title =
+                    (
+                        definitionSet.title || ""
+                    ).toLowerCase();
+
+                if (
+                    search &&
+                    !title.includes(search)
+                ) {
+                    return false;
+                }
+
+                if (
+                    dateFilter !== "all"
+                ) {
+
+                    if (
+                        !definitionSet.created_at
+                    ) {
+                        return false;
+                    }
+
+                    const created =
+                        new Date(
+                            definitionSet.created_at
+                        );
+
+                    if (
+                        dateFilter === "today" &&
+                        (
+                            created.getFullYear() !==
+                                now.getFullYear() ||
+                            created.getMonth() !==
+                                now.getMonth() ||
+                            created.getDate() !==
+                                now.getDate()
+                        )
+                    ) {
+                        return false;
+                    }
+
+                    if (dateFilter === "week") {
+                        const cutoff =
+                            new Date();
+
+                        cutoff.setDate(
+                            cutoff.getDate() - 7
+                        );
+
+                        if (created < cutoff) {
+                            return false;
+                        }
+                    }
+
+                    if (dateFilter === "month") {
+                        const cutoff =
+                            new Date();
+
+                        cutoff.setMonth(
+                            cutoff.getMonth() - 1
+                        );
+
+                        if (created < cutoff) {
+                            return false;
+                        }
+                    }
+
+                    if (dateFilter === "year") {
+                        const cutoff =
+                            new Date();
+
+                        cutoff.setFullYear(
+                            cutoff.getFullYear() - 1
+                        );
+
+                        if (created < cutoff) {
+                            return false;
+                        }
+                    }
+                }
+
+                return true;
+            }
+        );
+
+    return [...filtered].sort(
+        (a, b) => {
+
+            if (sort === "title-asc") {
+                return (
+                    a.title || ""
+                ).localeCompare(
+                    b.title || ""
+                );
+            }
+
+            if (sort === "title-desc") {
+                return (
+                    b.title || ""
+                ).localeCompare(
+                    a.title || ""
+                );
+            }
+
+            const aDate =
+                new Date(
+                    a.created_at || 0
+                ).getTime();
+
+            const bDate =
+                new Date(
+                    b.created_at || 0
+                ).getTime();
+
+            if (sort === "oldest") {
+                return aDate - bDate;
+            }
+
+            return bDate - aDate;
+        }
+    );
+}
+
+async function loadProfileDefinitions() {
+
+    const container =
+        document.getElementById(
+            "profileDefinitions"
+        );
+
+    if (!container || !profileUserId) {
+        return;
+    }
+
+    container.textContent =
+        "Loading definitions...";
+
+    const { data, error } =
+        await supabaseClient
+            .from("public_definitions")
+            .select("*")
+            .eq("user_id", profileUserId)
+            .order(
+                "created_at",
+                { ascending: false }
+            );
+
+    if (error) {
+        console.error(
+            "Profile definitions load failed:",
+            error
+        );
+
+        container.textContent =
+            "Unable to load published definitions.";
+
+        return;
+    }
+
+    profilePublishedDefinitions =
+        data || [];
+
+    container.innerHTML = "";
+
+    if (
+        profilePublishedDefinitions.length === 0
+    ) {
+        container.textContent =
+            "This user has no published definitions yet.";
+
+        return;
+    }
+
+    profilePublishedDefinitions.forEach(
+        definitionSet => {
+
+            const card =
+                document.createElement("div");
+
+            card.className =
+                "database-entry-card";
+
+            const title =
+                definitionSet.title ||
+                "Untitled Definitions";
+
+            const coins =
+                Array.isArray(
+                    definitionSet.coins
+                )
+                    ? definitionSet.coins
+                    : [];
+
+            const createdDate =
+                definitionSet.created_at
+                    ? new Date(
+                        definitionSet.created_at
+                    ).toLocaleDateString()
+                    : "Unknown date";
+
+            card.innerHTML = `
+                <div class="typing-card-header">
+                    <div class="typing-card-date">
+                        ${escapeHtml(createdDate)}
+                    </div>
+                </div>
+
+                <h2>
+                    ${escapeHtml(title)}
+                </h2>
+
+                <div class="typing-card-info">
+                    ${coins.length} coin${
+                        coins.length === 1 ? "" : "s"
+                    }
+                </div>
+
+                <button
+                    class="profile-view-definitions-btn"
+                    type="button">
+                    View Definitions
+                </button>
+            `;
+
+            container.appendChild(card);
+        }
+    );
+}
+
+
+function showProfileContent(section) {
+
+    const typings =
+        document.getElementById(
+            "profileTypings"
+        );
+
+const definitions =
+    document.getElementById(
+        "profileDefinitionsSection"
+    );
+
+    const typingsTab =
+        document.getElementById(
+            "profileTypingsTab"
+        );
+
+    const definitionsTab =
+        document.getElementById(
+            "profileDefinitionsTab"
+        );
+
+const controls =
+    document.querySelector(
+        ".profile-typings-section > .profile-typing-controls"
+    );
+
+    const showingDefinitions =
+        section === "definitions";
+
+    if (typings) {
+        typings.style.display =
+            showingDefinitions
+                ? "none"
+                : "";
+    }
+
+    if (definitions) {
+        definitions.style.display =
+            showingDefinitions
+                ? ""
+                : "none";
+    }
+
+    if (controls) {
+        controls.style.display =
+            showingDefinitions
+                ? "none"
+                : "";
+    }
+
+    typingsTab?.classList.toggle(
+        "active",
+        !showingDefinitions
+    );
+
+    definitionsTab?.classList.toggle(
+        "active",
+        showingDefinitions
+    );
+}
+
+// =========================
 // HTML Safety
 // =========================
 
@@ -1765,7 +2023,7 @@ async function saveProfile() {
 
     if (profileBio) {
         profileBio.textContent =
-            bio || "No bio yet.";
+            bio || "No bio";
     }
 
     saveProfileBtn.disabled = false;
@@ -1858,7 +2116,6 @@ if (profileTypingSearch) {
 [
     profileTypingSort,
     profileTypingTypeFilter,
-    profileTypingPossibilitiesFilter,
     profileTypingDateFilter
 ].forEach(control => {
 
@@ -1889,13 +2146,6 @@ if (clearProfileTypingFilters) {
 
             if (profileTypingTypeFilter) {
                 profileTypingTypeFilter.value =
-                    "all";
-            }
-
-            if (
-                profileTypingPossibilitiesFilter
-            ) {
-                profileTypingPossibilitiesFilter.value =
                     "all";
             }
 
@@ -1947,6 +2197,56 @@ if (profileRevealAllTypes) {
                             ? "true"
                             : "false";
                 });
+        }
+    );
+}
+
+const profileRowEditBtn =
+    document.getElementById(
+        "profileRowEditBtn"
+    );
+
+if (profileRowEditBtn) {
+    profileRowEditBtn.addEventListener(
+        "click",
+        openProfileEditor
+    );
+}
+
+const profileTypingsTab =
+    document.getElementById(
+        "profileTypingsTab"
+    );
+
+const profileDefinitionsTab =
+    document.getElementById(
+        "profileDefinitionsTab"
+    );
+
+    if (profileTypingsTab) {
+
+    profileTypingsTab.addEventListener(
+        "click",
+        () => {
+
+            showProfileContent(
+                "typings"
+            );
+        }
+    );
+}
+
+if (profileDefinitionsTab) {
+
+    profileDefinitionsTab.addEventListener(
+        "click",
+        async () => {
+
+            showProfileContent(
+                "definitions"
+            );
+
+            await loadProfileDefinitions();
         }
     );
 }
